@@ -49,9 +49,9 @@ float integrate(func_t functionid, float a, float b, float n, int intensity) {
 /// and the answer of the integral. The parameters are passed to the integrate function
 /// Yes I am extra, there is no need for this function to be a vardic template, but why not?
 /// @return A pair of floats. The first is the answer and the second is the time it took
-/// @parameter pack A parameter pack that is forwarded to the integrate function by value
+/// @parameter pack A parameter pack that is forwarded to the integrate function by perfect fwding
 template <typename... PP>
-std::pair<float, float> integrate_wrapper(PP... pack) {
+std::pair<float, float> integrate_wrapper(PP&&... pack) {
   auto start = hrc::now();
   float ans = integrate(std::forward<PP>(pack)...);
   auto end = hrc::now();
