@@ -26,24 +26,38 @@ float f4(float x, int intensity);
 /// This function takes the function and aproximates the integral using
 /// the parsed command line parameters. Im also making all the parameters
 /// float cause I dont want to cast them everytime.
-float integrate(func_t func, float a, float b, float n, int t) {
+/// @return The result of the integral
+/// @param functionid The function to integrate
+/// @param a The upper bound of the integral
+/// @param b The lower bound of the integral
+/// @param n an integer which is the number of points to compute the approximation of the integral
+/// @param intensity an integer which is the second parameter to give the the function to integrate
+float integrate(func_t functionid, float a, float b, float n, int intensity) {
   float ban = (b - a) / n;
   float ans{  };
 
-  for (float i = 0; i < n - 1; ++i) {
+  for (float i = 0; i < n; ++i) {
     float x = a + (i + 0.5) * ban;
-    ans += func(x, t);
+    ans += functionid(x, intensity);
   }
 
   return ans * ban;
 }
 
-std::pair<float, float> integrate_wrapper(func_t func, float a, float b, float n, int t) {
+
+/// This is a simple wrapper that times the integrate function. Returns the time it took
+/// and the answer of the integral. The parameters are passed to the integrate function
+/// Yes I am extra, there is no need for this function to be a vardic template, but why not?
+/// @return A pair of floats. The first is the answer and the second is the time it took
+/// @parameter pack A parameter pack that is forwarded to the integrate function by value
+template <typename... PP>
+std::pair<float, float> integrate_wrapper(PP... pack) {
   auto start = hrc::now();
-  float ans = integrate(func, a, b, n, t);
+  float ans = integrate(std::forward<PP>(pack)...);
   auto end = hrc::now();
 
-  float seconds = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
+  std::chrono::duration<double> elapse{ end - start };
+  float seconds = std::chrono::duration_cast<std::chrono::seconds>(elapse).count();
 
   return { ans, seconds };
 }
