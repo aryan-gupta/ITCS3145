@@ -2,12 +2,12 @@
 #include <iostream>
 #include <fstream>
 #include <memory>
+#include <limits.h>
 
 int main () {
-  constexpr size_t CHAR_LEN = 1024;
 
-  std::unique_ptr<char> str{ new char[CHAR_LEN] };
-  int ret = gethostname(str.get(), CHAR_LEN);
+  char str[HOST_NAME_MAX + 1];
+  int ret = gethostname(str, HOST_NAME_MAX + 1);
 
   if (ret != 0) {
     std::cout << "Somthing went wrong" << std::endl;
@@ -18,7 +18,7 @@ int main () {
   // file << str.get() << std::endl;
   // file.close();
 
-  std::cout << str.get() << std::endl;
+  std::cout << str << std::endl;
 
   return 0;
 }
