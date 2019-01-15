@@ -14,9 +14,11 @@ int main () {
     return -1;
   }
 
-  std::ofstream file{ "preliminary_answer" };
-  file << str.get() << std::endl;
-  file.close();
+  // std::ofstream file{ "preliminary_answer" };
+  // file << str.get() << std::endl;
+  // file.close();
+
+  std::cout << str.get() << std::endl;
 
   return 0;
 }
