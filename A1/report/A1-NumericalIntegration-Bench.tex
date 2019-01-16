@@ -1,0 +1,37 @@
+\documentclass{article}
+\usepackage{listings}
+\usepackage{pdfpages}
+\graphicspath{ {.} }
+
+\usepackage{fancyhdr}
+\usepackage[pdftex,
+    pdfauthor={Aryan Gupta},
+    pdftitle={ITCS3145 A1 Report},
+    pdfsubject={Assignment Report},
+    pdfkeywords={},
+    pdfproducer={Latex with hyperref},
+    pdfcreator={}
+]{hyperref}
+\usepackage[margin=1in]{geometry}
+\hypersetup{colorlinks=true, linkcolor=black,urlcolor=black}
+\usepackage[margin=1in]{geometry}
+\usepackage{lastpage}
+\usepackage[margin=1in]{geometry}
+\usepackage{fancyhdr}
+\usepackage{amsmath,amsfonts, amsthm}
+\usepackage{float}
+\usepackage{graphicx}
+
+\lstset{
+    basicstyle=\ttfamily,
+    columns=fullflexible,
+    frame=single,
+    breaklines=true,
+    postbreak=\mbox{$\hookrightarrow$\space},
+}
+
+\begin{document}
+	\section{A1-NumericalIntegration-code}
+	The assignment was to run our integration code on the mamba server. This would allow us to run long term tasks on a mulithreaded enviroment. The proceedure was simple. The code was pushed to the mamba server, then compiled and submitted in the job queue. One of the issues I can into was that I accideentally wrote a loop with a float as the counter variable and it broke with large numbers. After the code was fixed, I resubmited the job and it worked like a charm.
+\end{document}
+
