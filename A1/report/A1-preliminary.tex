@@ -1,0 +1,38 @@
+\documentclass{article}
+\usepackage{listings}
+\usepackage{pdfpages}
+\graphicspath{ {.} }
+
+\usepackage{fancyhdr}
+\usepackage[pdftex,
+    pdfauthor={Aryan Gupta},
+    pdftitle={ITCS3145 A1 Report},
+    pdfsubject={Assignment Report},
+    pdfkeywords={},
+    pdfproducer={Latex with hyperref},
+    pdfcreator={}
+]{hyperref}
+\usepackage[margin=1in]{geometry}
+\hypersetup{colorlinks=true, linkcolor=black,urlcolor=black}
+\usepackage[margin=1in]{geometry}
+\usepackage{lastpage}
+\usepackage[margin=1in]{geometry}
+\usepackage{fancyhdr}
+\usepackage{amsmath,amsfonts, amsthm}
+\usepackage{float}
+\usepackage{graphicx}
+
+\lstset{
+    basicstyle=\ttfamily,
+    columns=fullflexible,
+    frame=single,
+    breaklines=true,
+    postbreak=\mbox{$\hookrightarrow$\space},
+}
+
+\begin{document}
+	\section{A1-preliminary}
+	The code for this assignment was very simple. First a char array was created. By reading the man page for \lstinline{gethostname()}, it can be seen that the programmer can use \lstinline{HOST_NAME_MAX} to get the length of the largest host name (not including the null terminator). Then the array is passed into the \lstinline{gethostname()} library function. The code checks for errors and prints the name to stdout. After running the program on mamba, the preliminary\_answer file was created and contained \lstinline{mba-c1.uncc.edu}
+
+\end{document}
+
