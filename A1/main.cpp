@@ -47,7 +47,6 @@ float integrate(func_t functionid, float a, float b, float n, int intensity) {
 
 /// This is a simple wrapper that times the integrate function. Returns the time it took
 /// and the answer of the integral. The parameters are passed to the integrate function
-/// Yes I am extra, there is no need for this function to be a vardic template, but why not?
 /// @return A pair of floats. The first is the answer and the second is the time it took
 /// @parameter pack A parameter pack that is forwarded to the integrate function by perfect fwding
 template <typename... PP>
@@ -77,6 +76,7 @@ int main (int argc, char* argv[]) {
 
   func_t func = nullptr;
 
+  // depending on the function id. Set the function pointer to the pointer to the function
   switch (id) {
     case 1: func = f1; break;
     case 2: func = f2; break;
@@ -88,9 +88,7 @@ int main (int argc, char* argv[]) {
     }
   }
 
-// make file does not have c++17, I cry every night
 // Ok so turns out I also needs to check if __has_cpp_attibute exists too. I'm going to do this for now
-// but Im probs displeasing the C++ gods
 #ifdef __cpp_structured_bindings
   auto [answer, timeTaken] = integrate_wrapper(func, a, b, n, i);
 #else
