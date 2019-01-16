@@ -36,8 +36,8 @@ float integrate(func_t functionid, float a, float b, float n, int intensity) {
   float ban = (b - a) / n;
   float ans{  };
 
-  for (float i = 0; i < n; ++i) {
-    float x = a + (i + 0.5) * ban;
+  for (int i = 0; i < n; ++i) {
+    float x = a + ((double)i + 0.5) * ban;
     ans += functionid(x, intensity);
   }
 
@@ -57,7 +57,7 @@ std::pair<float, float> integrate_wrapper(PP&&... pack) {
   auto end = hrc::now();
 
   std::chrono::duration<double> elapse{ end - start };
-  float seconds = std::chrono::duration_cast<std::chrono::seconds>(elapse).count();
+  float seconds = elapse.count(); // std::chrono::duration_cast<std::chrono::seconds>(elapse).count();
 
   return { ans, seconds };
 }
