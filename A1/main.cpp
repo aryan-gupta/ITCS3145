@@ -89,7 +89,9 @@ int main (int argc, char* argv[]) {
   }
 
 // make file does not have c++17, I cry every night
-#if __has_cpp_attribute(__cpp_structured_bindings)
+// Ok so turns out I also needs to check if __has_cpp_attibute exists too. I'm going to do this for now
+// but Im probs displeasing the C++ gods
+#ifdef __cpp_structured_bindings
   auto [answer, timeTaken] = integrate_wrapper(func, a, b, n, i);
 #else
   float answer, timeTaken;
