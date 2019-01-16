@@ -1,0 +1,38 @@
+\documentclass{article}
+\usepackage{listings}
+\usepackage{pdfpages}
+\graphicspath{ {.} }
+
+\usepackage{fancyhdr}
+\usepackage[pdftex,
+    pdfauthor={Aryan Gupta},
+    pdftitle={ITCS3145 A1 Report},
+    pdfsubject={Assignment Report},
+    pdfkeywords={},
+    pdfproducer={Latex with hyperref},
+    pdfcreator={}
+]{hyperref}
+\usepackage[margin=1in]{geometry}
+\hypersetup{colorlinks=true, linkcolor=black,urlcolor=black}
+\usepackage[margin=1in]{geometry}
+\usepackage{lastpage}
+\usepackage[margin=1in]{geometry}
+\usepackage{fancyhdr}
+\usepackage{amsmath,amsfonts, amsthm}
+\usepackage{float}
+\usepackage{graphicx}
+
+\lstset{
+    basicstyle=\ttfamily,
+    columns=fullflexible,
+    frame=single,
+    breaklines=true,
+    postbreak=\mbox{$\hookrightarrow$\space},
+}
+
+\begin{document}
+	\section{A1-NumericalIntegration-code}
+	The assignment was to create a program that integrated a set function. The function was given to us as a precompiled binary that we could link to our code. The code first parsed through the command line arguments and set up the integration. The integrate function would take a pointer to the function to integrate to reduce code redundancy. This function also took the bounds and intensity as parameters. This function had a wrapper that would time the integration process. The parameters of this wrapper function would be forwarded to the integrate function. The wrapper function would return the answer and time it took.
+
+\end{document}
+
