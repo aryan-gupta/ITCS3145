@@ -48,3 +48,5 @@
 
 # python cache
 *__pycache__*
+
+**/report/*.pdf
