@@ -30,6 +30,12 @@
 		"tuple": "cpp",
 		"type_traits": "cpp",
 		"typeinfo": "cpp",
-		"utility": "cpp"
+		"utility": "cpp",
+		"unordered_map": "cpp",
+		"vector": "cpp",
+		"numeric": "cpp",
+		"optional": "cpp",
+		"sstream": "cpp",
+		"thread": "cpp"
 	}
 }
