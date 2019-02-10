@@ -1,4 +1,6 @@
 
+// PLEASE COMPILE WITH g++ reduce_par.cpp -lpthread
+
 #include <memory>
 #include <iostream>
 #include <vector>
@@ -19,9 +21,13 @@ T max(T a, T b) {
 	return a > b ? a : b;
 }
 
-template <typename T, typename = std::enable_if_t<std::is_same_v<T, std::string>>>
+// template <typename T, typename = std::enable_if_t<std::is_same_v<T, std::string>>>
+template <typename T, typename = std::enable_if_t<std::is_same<T, std::string>::value>>
 constexpr auto concact = sum<T>;
 
+// Code from the assignment. The last parameter is needed
+// because F is a type, even though it can be modified to only
+// have 2 parameters, I belive this is easier on the head
 template <typename T, typename F>
 T reduce_sin(T* array, size_t n, F op) {
 	T result = array[0];
@@ -31,6 +37,8 @@ T reduce_sin(T* array, size_t n, F op) {
 }
 
 // I do not want to deal with promises or futures, so Im doing this.
+/// Partially reduces the array from [start, end) and places it in
+/// result.
 /// @note The *result variable does not have a race condidtion as it
 ///       is only being written by one thread.
 template <typename T, typename F>
@@ -38,6 +46,7 @@ void partial_reduce(T* start, T* end, T* result, F op) {
 	*result = reduce_sin(start, std::distance(start, end), op);
 }
 
+/// Parallel reduce
 template <typename T, typename F>
 T reduce_par (T* array, size_t n, size_t p, F op) {
 	// create nessicary structures
@@ -51,8 +60,8 @@ T reduce_par (T* array, size_t n, size_t p, F op) {
 
 	// the actual parallel code
 	for (size_t i = 0; i < p - 1; ++i) {
-		// The <T> is needed because partial_reduce is a templated function so we need
-		// to thread the <T> version of the function
+		// The <T, F> is needed because partial_reduce is a templated function so we need
+		// to thread the <T, F> version of the function
 		threads.emplace_back(partial_reduce<T, F>, start, end, &data[i], op);
 		start = end;
 		end += depth;
@@ -109,6 +118,7 @@ T reduce_par (T* array, size_t n, size_t p, F op) {
 int main() {
 
 #ifdef NUMERIC
+
 	constexpr unsigned long long LG_NUM = MAX;
 	std::vector<NUM_TYPE> data{};
 	data.push_back(3); // this is a "valid" dummy data for max
@@ -163,14 +173,14 @@ int main() {
 	// Parallel: 351.756
 	// GNU: 1562.03
 	// The sum is: 500000010
-#if OPTION == 1
-	auto begin4 = std::chrono::high_resolution_clock::now();
-	double accum4 = __gnu_parallel::accumulate(data.begin(), data.end(), 0);
-	auto end4 = std::chrono::high_resolution_clock::now();
+// #if OPTION == 1
+// 	auto begin4 = std::chrono::high_resolution_clock::now();
+// 	double accum4 = __gnu_parallel::accumulate(data.begin(), data.end(), 0);
+// 	auto end4 = std::chrono::high_resolution_clock::now();
 
-	std::chrono::duration<double, std::milli> elapse4{ end4 - begin4 };
-	std::cout << "GNU: " << elapse4.count() << std::endl;
-#endif
+// 	std::chrono::duration<double, std::milli> elapse4{ end4 - begin4 };
+// 	std::cout << "GNU: " << elapse4.count() << std::endl;
+// #endif
 
 	if (accum1 == accum2)
 		std::cout << "The result is: " << accum1 << std::endl;
