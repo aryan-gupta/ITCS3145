@@ -49,15 +49,25 @@ float f4(float x, int intensity);
 /// we are doing iteration, this class will hold one float and the array subscript will do nothing
 /// and get will return the single float. if we are doing thread, this class will hold an array and
 /// the array subscript will return the element at the index. and get will return the summ of the array
+/// I added some Small Value Optimization. Just for the fun of it... Why not?
 class FloatWrapper {
-  float* mData;
+  union {
+    float  mFloat;
+    float* mArray;
+  };
   size_t mSize;
 
-public:
-  FloatWrapper(size_t size) : mData{  }, mSize{ size } {
+  void construct() {
     if (mSize == 0) throw std::invalid_argument{ "[E] Why am I doin this?" };
-    else if (mSize == 1) mData = new float{  };
-    else mData = new float[mSize];
+    else if (mSize == 1) mFloat = 0.0;
+    else mArray = new float[mSize];
+  }
+
+public:
+  FloatWrapper() : mFloat{  }, mSize{ 0 } {  }
+
+  FloatWrapper(size_t size) : mSize{ size } {
+    construct();
   }
 
   // honestly this is because Im too lazy to write these funcs
@@ -67,22 +77,29 @@ public:
   FloatWrapper& operator= (FloatWrapper&& ) = delete; // NO MOVE ASSIGN
 
   ~FloatWrapper() {
-    if (mSize == 1) delete mData;
-    else delete[] mData;
+    if (mSize > 1)
+      delete[] mArray;
   }
 
-  // @todo const versions of these functions
+  void reset(size_t size) {
+    this->~FloatWrapper();
+    mSize = size;
+    construct();
+  }
+
   float& operator[] (size_t idx) {
-    if (mSize == 1) return *mData;
-    return mData[idx];
+    if (mSize == 0) throw std::logic_error{ "[E] You gotta set it up before you can use me!!" };
+    if (mSize == 1) return mFloat;
+    return mArray[idx];
   }
 
   float get() {
-    if (mSize == 1) return *mData;
+    if (mSize == 0) throw std::logic_error{ "[E] You gotta set it up before you can use me!!" };
+    if (mSize == 1) return mFloat;
 
     float result{  };
     for (int i = 0; i < mSize; ++i)
-    result += mData[i];
+      result += mArray[i];
 
     return result;
   }
@@ -139,6 +156,7 @@ void* integrate_iteration_partial(void* param_void) {
 
   return nullptr;
 }
+
 
 /// Wrapper for calling the partial integrator. This sets up all the threads, and what each threads do.
 std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n, int intensity, int nbthreads, FloatWrapper& fw, pthread_func_t partial) {
@@ -213,16 +231,16 @@ int main (int argc, char* argv[]) {
   // will have one float element. Otherwise it will be integrate_thread_partial and the FloatWrapper will hold
   // an array (one for each thread).
   pthread_func_t partial = nullptr;
-  std::unique_ptr<FloatWrapper> fw{  };
+  FloatWrapper fw;
   switch (argv[7][0]) {
     case 'i': {
       partial = integrate_iteration_partial;
-      fw.reset(new FloatWrapper{ 1 } );
+      fw.reset(1);
     } break;
 
     case 't': {
       partial = integrate_thread_partial;
-      fw.reset(new FloatWrapper{ (size_t)nbthreads } );
+      fw.reset(nbthreads);
     } break;
 
     default: {
@@ -245,10 +263,10 @@ int main (int argc, char* argv[]) {
   }
 
 #ifdef __cpp_structured_bindings
-  auto [answer, timeTaken] = integrate_wrapper(func, a, b, n, i, nbthreads, *fw.get(), partial);
+  auto [answer, timeTaken] = integrate_wrapper(func, a, b, n, i, nbthreads, fw, partial);
 #else
   float answer, timeTaken;
-  std::tie(answer, timeTaken) = integrate_wrapper(func, a, b, n, i, nbthreads, *fw.get(), partial);
+  std::tie(answer, timeTaken) = integrate_wrapper(func, a, b, n, i, nbthreads, fw, partial);
 #endif
 
   std::cout << answer << std::endl;
