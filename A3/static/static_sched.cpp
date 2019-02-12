@@ -11,16 +11,16 @@
 #include <tuple>
 #include <vector>
 #include <memory>
+#include <stdexcept>
 
 #include <pthread.h>
 
-#include <mutex>
+// #include <mutex>
 
 using hrc = std::chrono::high_resolution_clock;
 
 using func_t = float (*)(float, int);
-using func_wrapper_t = std::pair<float, float> (*) (func_t, int, int, float, int, int);
-
+using pthread_func_t = void* (*) (void*);
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,6 +35,55 @@ float f4(float x, int intensity);
 }
 #endif
 
+/// This class abstracts away an array vs single element of data. Depending on how the object
+/// is constructed, It will keep 1 element, or an array of element.
+/// This is to reduce code redundancy. The two types of static threading models have majoritly the
+/// same amount of code, the different parts are which function below it calls to run as a thread
+/// One model keeps a float value local to the thread and the other uses a mutex to update one sigular
+/// value. This class abstracts this away. If the FloatWrapper class is init as one float value
+/// and use a mutex, then only one float value is created and any access to the "array" just calles
+/// the one value. I am aware of how hacky this is because when you use the array subscripting you assume
+/// that FloatWrapper[x] and FloatWrapper[y] will return two differnet locatons. But I will have to
+/// change up the schematics a bit to fix this.
+class FloatWrapper {
+  float* mData;
+  size_t mSize;
+
+public:
+  FloatWrapper(size_t size) : mData{  }, mSize{ size } {
+    if (mSize == 0) throw std::invalid_argument{ "[E] Why am I doin this?" };
+    else if (mSize == 1) mData = new float{  };
+    else mData = new float[mSize];
+  }
+
+  // honestly this is because Im too lazy to write these funcs
+  FloatWrapper(FloatWrapper& ) = delete; // NO COPY CTOR
+  FloatWrapper(FloatWrapper&& ) = delete; // NO MOVE CTOR
+  FloatWrapper& operator= (FloatWrapper& ) = delete; // NO COPY ASSIGN
+  FloatWrapper& operator= (FloatWrapper&& ) = delete; // NO MOVE ASSIGN
+
+  ~FloatWrapper() {
+    if (mSize == 1) delete mData;
+    else delete[] mData;
+  }
+
+  // @todo const versions of these functions
+  float& operator[] (size_t idx) {
+    if (mSize == 1) return *mData;
+    return mData[idx];
+  }
+
+  float get() {
+    if (mSize == 1) return *mData;
+
+    float result{  };
+    for (int i = 0; i < mSize; ++i)
+    result += mData[i];
+
+    return result;
+  }
+};
+
 struct integrate_params {
   func_t functionid;
   float a;
@@ -46,6 +95,7 @@ struct integrate_params {
   int intensity;
 };
 
+/// The thread function for keeping a local variable and at the end adding up all the partial values
 void* integrate_thread_partial(void* param_void) {
   auto p = static_cast<integrate_params*>(param_void);
 
@@ -62,50 +112,8 @@ void* integrate_thread_partial(void* param_void) {
   return nullptr;
 }
 
-
-std::pair<float, float> integrate_thread_wrapper(func_t functionid, int a, int b, float n, int intensity, int nbthreads) {
-  auto timeStart = hrc::now();
-
-  std::vector<std::pair<pthread_t, integrate_params*>> threads{  };
-  std::unique_ptr<float[]> answers{ new float[nbthreads] };
-
-  int depth = n / nbthreads;
-  int start = 0;
-  int end = depth;
-
-  for (int i = 0; i < nbthreads - 1; ++i) {
-    integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, end, &answers[i], intensity };
-    pthread_t tmp{  };
-    pthread_create(&tmp, nullptr, integrate_thread_partial, param_in);
-    threads.emplace_back(tmp, param_in);
-    start = end;
-    end += depth;
-  }
-
-  integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, n, &answers[nbthreads - 1], intensity };
-  pthread_t tmp{  };
-  pthread_create(&tmp, nullptr, integrate_thread_partial, param_in);
-  threads.emplace_back(tmp, param_in);
-
-  for (auto& t : threads) {
-    pthread_join(t.first, nullptr);
-    delete t.second;
-  }
-
-  float result{  };
-  for (int i = 0; i < nbthreads; ++i)
-    result += answers[i];
-
-  result *= (b - a) / n;
-
-  auto timeEnd = hrc::now();
-  std::chrono::duration<double> elapse{ timeEnd - timeStart };
-  float time = elapse.count(); // std::chrono::duration_cast<std::chrono::seconds>(elapse).count();
-
-  return { result, time };
-}
-
-
+/// The thread function for using a mutex to update one sigular result variable. the mutex prevents
+/// a race condition.
 pthread_mutex_t lock;
 void* integrate_iteration_partial(void* param_void) {
   auto p = static_cast<integrate_params*>(param_void);
@@ -124,29 +132,30 @@ void* integrate_iteration_partial(void* param_void) {
   return nullptr;
 }
 
-std::pair<float, float> integrate_iteration_wrapper(func_t functionid, int a, int b, float n, int intensity, int nbthreads) {
+
+/// Wrapper for calling the partial integrator. This sets up all the threads, and what each threads do.
+std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, float n, int intensity, int nbthreads, FloatWrapper& fw, pthread_func_t partial) {
   auto timeStart = hrc::now();
 
   pthread_mutex_init(&lock, nullptr); // What is this error checking you speak of?
   std::vector<std::pair<pthread_t, integrate_params*>> threads{  };
-  float result{  };
 
   int depth = n / nbthreads;
   int start = 0;
   int end = depth;
 
   for (int i = 0; i < nbthreads - 1; ++i) {
-    integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, end, &result, intensity };
+    integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, end, &fw[i], intensity };
     pthread_t tmp{  };
-    pthread_create(&tmp, nullptr, integrate_iteration_partial, param_in);
+    pthread_create(&tmp, nullptr, partial, param_in);
     threads.emplace_back(tmp, param_in);
     start = end;
     end += depth;
   }
 
-  integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, n, &result, intensity };
+  integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, n, &fw[nbthreads - 1], intensity };
   pthread_t tmp{  };
-  pthread_create(&tmp, nullptr, integrate_iteration_partial, param_in);
+  pthread_create(&tmp, nullptr, partial, param_in);
   threads.emplace_back(tmp, param_in);
 
   for (auto& t : threads) {
@@ -154,7 +163,7 @@ std::pair<float, float> integrate_iteration_wrapper(func_t functionid, int a, in
     delete t.second;
   }
 
-  result *= (b - a) / n;
+  float result = fw.get() * (b - a) / n;
 
   auto timeEnd = hrc::now();
   std::chrono::duration<double> elapse{ timeEnd - timeStart };
@@ -180,19 +189,27 @@ int main (int argc, char* argv[]) {
 
   // maybe use string_view to make this more robust? rather than comparing the first char?
   // on second thought, string_view is c++17, rather not use it, compiler may not support
-  func_wrapper_t wrapper = nullptr;
+  pthread_func_t partial = nullptr;
+  std::unique_ptr<FloatWrapper> fw{  };
   switch (argv[7][0]) {
-    case 'i': wrapper = integrate_iteration_wrapper; break;
-    case 't': wrapper = integrate_thread_wrapper;    break;
+    case 'i': {
+      partial = integrate_iteration_partial;
+      fw.reset(new FloatWrapper{ 1 } );
+    } break;
+
+    case 't': {
+      partial = integrate_thread_partial;
+      fw.reset(new FloatWrapper{ nbthreads } );
+    } break;
+
     default: {
       std::cout << "[E] What.... did.... you.... do....???" << std::endl;
       return -3;
     }
   }
 
-  func_t func = nullptr;
-
   // depending on the function id. Set the function pointer to the pointer to the function
+  func_t func = nullptr;
   switch (id) {
     case 1: func = f1; break;
     case 2: func = f2; break;
@@ -205,10 +222,10 @@ int main (int argc, char* argv[]) {
   }
 
 #ifdef __cpp_structured_bindings
-  auto [answer, timeTaken] = wrapper(func, a, b, n, i, nbthreads);
+  auto [answer, timeTaken] = integrate_wrapper(func, a, b, n, i, nbthreads, *fw.get(), partial);
 #else
   float answer, timeTaken;
-  std::tie(answer, timeTaken) = wrapper(func, a, b, n, i, nbthreads);
+  std::tie(answer, timeTaken) = integrate_wrapper(func, a, b, n, i, nbthreads, *fw.get(), partial);
 #endif
 
   std::cout << answer << std::endl;
