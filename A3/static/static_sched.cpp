@@ -15,7 +15,8 @@
 
 #include <pthread.h>
 
-// #include <mutex>
+/// This code got very complicated really fast. I will try to explain as best as I can. The integrate_wrapper
+/// function sets up the work that each thread will do and starts each thread.
 
 using hrc = std::chrono::high_resolution_clock;
 
@@ -44,7 +45,10 @@ float f4(float x, int intensity);
 /// and use a mutex, then only one float value is created and any access to the "array" just calles
 /// the one value. I am aware of how hacky this is because when you use the array subscripting you assume
 /// that FloatWrapper[x] and FloatWrapper[y] will return two differnet locatons. But I will have to
-/// change up the schematics a bit to fix this.
+/// change up the schematics a bit to fix this. The big thing to take away from this is that if
+/// we are doing iteration, this class will hold one float and the array subscript will do nothing
+/// and get will return the single float. if we are doing thread, this class will hold an array and
+/// the array subscript will return the element at the index. and get will return the summ of the array
 class FloatWrapper {
   float* mData;
   size_t mSize;
@@ -84,6 +88,8 @@ public:
   }
 };
 
+
+/// This struct is to pass params into the threaded function
 struct integrate_params {
   func_t functionid;
   float a;
@@ -94,6 +100,7 @@ struct integrate_params {
   float* answer;
   int intensity;
 };
+
 
 /// The thread function for keeping a local variable and at the end adding up all the partial values
 void* integrate_thread_partial(void* param_void) {
@@ -111,6 +118,7 @@ void* integrate_thread_partial(void* param_void) {
 
   return nullptr;
 }
+
 
 /// The thread function for using a mutex to update one sigular result variable. the mutex prevents
 /// a race condition.
@@ -137,13 +145,17 @@ void* integrate_iteration_partial(void* param_void) {
 std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, float n, int intensity, int nbthreads, FloatWrapper& fw, pthread_func_t partial) {
   auto timeStart = hrc::now();
 
-  pthread_mutex_init(&lock, nullptr); // What is this error checking you speak of?
+  // if we are doing interation then we need to set up the mutex
+  if (partial == integrate_iteration_partial)
+    pthread_mutex_init(&lock, nullptr);
   std::vector<std::pair<pthread_t, integrate_params*>> threads{  };
 
+  // calculate work for each thread
   int depth = n / nbthreads;
   int start = 0;
   int end = depth;
 
+  // start each thread and store the thread handle and its parameters (to prevent memory leaks)
   for (int i = 0; i < nbthreads - 1; ++i) {
     integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, end, &fw[i], intensity };
     pthread_t tmp{  };
@@ -153,18 +165,25 @@ std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, float
     end += depth;
   }
 
+  // start the last thread
+  // As you can see here, if out partial function is thread, then fw will hold an array of floats and the array subscript
+  // will return an seperate float for each thread. However id our partial function is iteration then fw will hold a single
+  // float and the array subscripting will aways return the same float variable (but will be protected by a mutex)
   integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, n, &fw[nbthreads - 1], intensity };
   pthread_t tmp{  };
   pthread_create(&tmp, nullptr, partial, param_in);
   threads.emplace_back(tmp, param_in);
 
+  // wait for the threads to finish and cleanup memory
   for (auto& t : threads) {
     pthread_join(t.first, nullptr);
     delete t.second;
   }
 
+  // calculate final result
   float result = fw.get() * (b - a) / n;
 
+  // calculate final time taken
   auto timeEnd = hrc::now();
   std::chrono::duration<double> elapse{ timeEnd - timeStart };
   float time = elapse.count(); // std::chrono::duration_cast<std::chrono::seconds>(elapse).count();
@@ -189,6 +208,11 @@ int main (int argc, char* argv[]) {
 
   // maybe use string_view to make this more robust? rather than comparing the first char?
   // on second thought, string_view is c++17, rather not use it, compiler may not support
+
+  // this section of code decides on which function should be threaded. If the parameter passed in is
+  // iteration, then the function that will be threaded is integrate_iteration_partial and the FloatWrapper
+  // will have one float element. Otherwise it will be integrate_thread_partial and the FloatWrapper will hold
+  // an array (one for each thread).
   pthread_func_t partial = nullptr;
   std::unique_ptr<FloatWrapper> fw{  };
   switch (argv[7][0]) {
