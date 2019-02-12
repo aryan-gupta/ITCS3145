@@ -92,11 +92,11 @@ public:
 /// This struct is to pass params into the threaded function
 struct integrate_params {
   func_t functionid;
-  float a;
-  float b;
-  float n;
-  float sn;
-  float en;
+  int a;
+  int b;
+  int n;
+  int sn;
+  int en;
   float* answer;
   int intensity;
 };
@@ -106,7 +106,7 @@ struct integrate_params {
 void* integrate_thread_partial(void* param_void) {
   auto p = static_cast<integrate_params*>(param_void);
 
-  float ban = (p->b - p->a) / p->n;
+  float ban = (p->b - p->a) / (float)p->n;
   float ans{  };
 
   for (int i = p->sn; i < p->en; ++i) {
@@ -126,7 +126,7 @@ pthread_mutex_t lock;
 void* integrate_iteration_partial(void* param_void) {
   auto p = static_cast<integrate_params*>(param_void);
 
-  float ban = (p->b - p->a) / p->n;
+  float ban = (p->b - p->a) / (float)p->n;
 
   for (int i = p->sn; i < p->en; ++i) {
     float x = p->a + ((float)i + 0.5) * ban;
@@ -140,9 +140,8 @@ void* integrate_iteration_partial(void* param_void) {
   return nullptr;
 }
 
-
 /// Wrapper for calling the partial integrator. This sets up all the threads, and what each threads do.
-std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, float n, int intensity, int nbthreads, FloatWrapper& fw, pthread_func_t partial) {
+std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n, int intensity, int nbthreads, FloatWrapper& fw, pthread_func_t partial) {
   auto timeStart = hrc::now();
 
   // if we are doing interation then we need to set up the mutex
@@ -223,7 +222,7 @@ int main (int argc, char* argv[]) {
 
     case 't': {
       partial = integrate_thread_partial;
-      fw.reset(new FloatWrapper{ nbthreads } );
+      fw.reset(new FloatWrapper{ (size_t)nbthreads } );
     } break;
 
     default: {
