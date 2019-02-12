@@ -1,3 +1,5 @@
+// Why must we use pthreads? why... whyyyyyy.... why not use the glory of c++11 std::threads????????
+
 #include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,9 +14,13 @@
 
 #include <pthread.h>
 
+#include <mutex>
+
 using hrc = std::chrono::high_resolution_clock;
 
 using func_t = float (*)(float, int);
+using func_wrapper_t = std::pair<float, float> (*) (func_t, int, int, float, int, int);
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -93,7 +99,7 @@ std::pair<float, float> integrate_thread_wrapper(func_t functionid, int a, int b
   result *= (b - a) / n;
 
   auto timeEnd = hrc::now();
-  std::chrono::duration<double, std::milli> elapse{ timeEnd - timeStart };
+  std::chrono::duration<double> elapse{ timeEnd - timeStart };
   float time = elapse.count(); // std::chrono::duration_cast<std::chrono::seconds>(elapse).count();
 
   return { result, time };
@@ -101,7 +107,7 @@ std::pair<float, float> integrate_thread_wrapper(func_t functionid, int a, int b
 
 
 pthread_mutex_t lock;
-void* integrate_partial_iteration(void* param_void) {
+void* integrate_iteration_partial(void* param_void) {
   auto p = static_cast<integrate_params*>(param_void);
 
   float ban = (p->b - p->a) / p->n;
@@ -116,6 +122,45 @@ void* integrate_partial_iteration(void* param_void) {
   }
 
   return nullptr;
+}
+
+std::pair<float, float> integrate_iteration_wrapper(func_t functionid, int a, int b, float n, int intensity, int nbthreads) {
+  auto timeStart = hrc::now();
+
+  pthread_mutex_init(&lock, nullptr); // What is this error checking you speak of?
+  std::vector<std::pair<pthread_t, integrate_params*>> threads{  };
+  float result{  };
+
+  int depth = n / nbthreads;
+  int start = 0;
+  int end = depth;
+
+  for (int i = 0; i < nbthreads - 1; ++i) {
+    integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, end, &result, intensity };
+    pthread_t tmp{  };
+    pthread_create(&tmp, nullptr, integrate_iteration_partial, param_in);
+    threads.emplace_back(tmp, param_in);
+    start = end;
+    end += depth;
+  }
+
+  integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, n, &result, intensity };
+  pthread_t tmp{  };
+  pthread_create(&tmp, nullptr, integrate_iteration_partial, param_in);
+  threads.emplace_back(tmp, param_in);
+
+  for (auto& t : threads) {
+    pthread_join(t.first, nullptr);
+    delete t.second;
+  }
+
+  result *= (b - a) / n;
+
+  auto timeEnd = hrc::now();
+  std::chrono::duration<double> elapse{ timeEnd - timeStart };
+  float time = elapse.count(); // std::chrono::duration_cast<std::chrono::seconds>(elapse).count();
+
+  return { result, time };
 }
 
 
@@ -135,10 +180,10 @@ int main (int argc, char* argv[]) {
 
   // maybe use string_view to make this more robust? rather than comparing the first char?
   // on second thought, string_view is c++17, rather not use it, compiler may not support
-  bool threadLocal = false;
+  func_wrapper_t wrapper = nullptr;
   switch (argv[7][0]) {
-    case 'i': threadLocal = false; break;
-    case 't': threadLocal = true;  break;
+    case 'i': wrapper = integrate_iteration_wrapper; break;
+    case 't': wrapper = integrate_thread_wrapper;    break;
     default: {
       std::cout << "[E] What.... did.... you.... do....???" << std::endl;
       return -3;
@@ -160,10 +205,10 @@ int main (int argc, char* argv[]) {
   }
 
 #ifdef __cpp_structured_bindings
-  auto [answer, timeTaken] = integrate_thread_wrapper(func, a, b, n, i, nbthreads);
+  auto [answer, timeTaken] = wrapper(func, a, b, n, i, nbthreads);
 #else
   float answer, timeTaken;
-  std::tie(answer, timeTaken) = integrate_thread_wrapper(func, a, b, n, i, nbthreads);
+  std::tie(answer, timeTaken) = wrapper(func, a, b, n, i, nbthreads);
 #endif
 
   std::cout << answer << std::endl;
