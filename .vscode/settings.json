@@ -36,6 +36,8 @@
 		"numeric": "cpp",
 		"optional": "cpp",
 		"sstream": "cpp",
-		"thread": "cpp"
+		"thread": "cpp",
+		"condition_variable": "cpp",
+		"mutex": "cpp"
 	}
 }
