@@ -27,5 +27,5 @@ int main() {
 		data.push_back(dist(mt));
 	}
 
-	merge_sort(data.begin(), data.end())
+	merge_sort(data.begin(), data.end());
 }
