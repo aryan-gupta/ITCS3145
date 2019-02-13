@@ -36,72 +36,40 @@ float f4(float x, int intensity);
 }
 #endif
 
-/// This class abstracts away an array vs single element of data. Depending on how the object
-/// is constructed, It will keep 1 element, or an array of element.
-/// This is to reduce code redundancy. The two types of static threading models have majoritly the
-/// same amount of code, the different parts are which function below it calls to run as a thread
-/// One model keeps a float value local to the thread and the other uses a mutex to update one sigular
-/// value. This class abstracts this away. If the FloatWrapper class is init as one float value
-/// and use a mutex, then only one float value is created and any access to the "array" just calles
-/// the one value. I am aware of how hacky this is because when you use the array subscripting you assume
-/// that FloatWrapper[x] and FloatWrapper[y] will return two differnet locatons. But I will have to
-/// change up the schematics a bit to fix this. The big thing to take away from this is that if
-/// we are doing iteration, this class will hold one float and the array subscript will do nothing
-/// and get will return the single float. if we are doing thread, this class will hold an array and
-/// the array subscript will return the element at the index. and get will return the summ of the array
-/// I added some Small Value Optimization. Just for the fun of it... Why not?
-class FloatWrapper {
-  union {
-    float  mFloat;
-    float* mArray;
-  };
-  size_t mSize;
 
-  void construct() {
-    if (mSize == 0) throw std::invalid_argument{ "[E] Why am I doin this?" };
-    else if (mSize == 1) mFloat = 0.0;
-    else mArray = new float[mSize];
-  }
+class DynamicSchedular {
+  pthread_mutex_t mMux;
+  int mEnd;
+  int mCurrent;
+  int mGran;
+  bool mDone;
 
 public:
-  FloatWrapper() : mFloat{  }, mSize{ 0 } {  }
 
-  FloatWrapper(size_t size) : mSize{ size } {
-    construct();
+  DynamicSchedular(int end, int gran) : mEnd{ end }, mGran{ gran }, mCurrent{ 0 }, mDone{ false } {
+    pthread_mutex_init(&mMux, nullptr);
   }
 
-  // honestly this is because Im too lazy to write these funcs
-  FloatWrapper(FloatWrapper& ) = delete; // NO COPY CTOR
-  FloatWrapper(FloatWrapper&& ) = delete; // NO MOVE CTOR
-  FloatWrapper& operator= (FloatWrapper& ) = delete; // NO COPY ASSIGN
-  FloatWrapper& operator= (FloatWrapper&& ) = delete; // NO MOVE ASSIGN
-
-  ~FloatWrapper() {
-    if (mSize > 1)
-      delete[] mArray;
+  std::pair<int, int> get() {
+    int start, end;
+    pthread_mutex_lock(&mMux);
+    if (mCurrent == mEnd) {
+      start = end = 0;
+      mDone = true;
+    } else {
+      start = mCurrent;
+      end = mCurrent = mCurrent + mGran;
+    }
+    pthread_mutex_unlock(&mMux);
+    return { start, end };
   }
 
-  void reset(size_t size) {
-    this->~FloatWrapper();
-    mSize = size;
-    construct();
-  }
-
-  float& operator[] (size_t idx) {
-    if (mSize == 0) throw std::logic_error{ "[E] You gotta set it up before you can use me!!" };
-    if (mSize == 1) return mFloat;
-    return mArray[idx];
-  }
-
-  float get() {
-    if (mSize == 0) throw std::logic_error{ "[E] You gotta set it up before you can use me!!" };
-    if (mSize == 1) return mFloat;
-
-    float result{  };
-    for (int i = 0; i < mSize; ++i)
-      result += mArray[i];
-
-    return result;
+  bool done() {
+    // for now
+    pthread_mutex_lock(&mMux);
+    bool done = mDone;
+    pthread_mutex_unlock(&mMux);
+    return done;
   }
 };
 
@@ -112,12 +80,13 @@ struct integrate_params {
   int a;
   int b;
   int n;
-  int sn;
-  int en;
   float* answer;
   int intensity;
+  DynamicSchedular* sched;
 };
 
+
+pthread_mutex_t lock;
 
 /// The thread function for keeping a local variable and at the end adding up all the partial values
 void* integrate_thread_partial(void* param_void) {
@@ -126,29 +95,37 @@ void* integrate_thread_partial(void* param_void) {
   float ban = (p->b - p->a) / (float)p->n;
   float ans{  };
 
-  for (int i = p->sn; i < p->en; ++i) {
-    float x = p->a + ((float)i + 0.5) * ban;
-    ans += p->functionid(x, p->intensity);
+  while (!p->sched->done()) {
+    int start, end;
+    std::tie(start, end) = p->sched->get();
+    for (int i = start; i < end; ++i) {
+      float x = p->a + ((float)i + 0.5) * ban;
+      ans += p->functionid(x, p->intensity);
+    }
   }
 
-  *p->answer = ans;
+  pthread_mutex_lock(&lock);
+  *p->answer += ans;
+  pthread_mutex_unlock(&lock);
 
   return nullptr;
 }
 
 
-/// The thread function for using a mutex to update one sigular result variable. the mutex prevents
-/// a race condition.
-pthread_mutex_t lock;
-void* integrate_iteration_partial(void* param_void) {
+/// The thread function for keeping a local variable and at the end adding up all the partial values
+void* integrate_chunk_partial(void* param_void) {
   auto p = static_cast<integrate_params*>(param_void);
 
   float ban = (p->b - p->a) / (float)p->n;
 
-  for (int i = p->sn; i < p->en; ++i) {
-    float x = p->a + ((float)i + 0.5) * ban;
-    float ans = p->functionid(x, p->intensity);
-
+  while (!p->sched->done()) {
+    float ans{  };
+    int start, end;
+    std::tie(start, end) = p->sched->get();
+    for (int i = start; i < end; ++i) {
+      float x = p->a + ((float)i + 0.5) * ban;
+      ans += p->functionid(x, p->intensity);
+    }
     pthread_mutex_lock(&lock);
     *p->answer += ans;
     pthread_mutex_unlock(&lock);
@@ -158,14 +135,38 @@ void* integrate_iteration_partial(void* param_void) {
 }
 
 
+void* integrate_iteration_partial(void* param_void) {
+  auto p = static_cast<integrate_params*>(param_void);
+
+  float ban = (p->b - p->a) / (float)p->n;
+
+  // get chunk from Schedular
+  while (!p->sched->done()) {
+    int start, end;
+    std::tie(start, end) = p->sched->get();
+    for (int i = start; i < end; ++i) {
+      float x = p->a + ((float)i + 0.5) * ban;
+      float ans = p->functionid(x, p->intensity);
+
+      pthread_mutex_lock(&lock);
+      *p->answer += ans;
+      pthread_mutex_unlock(&lock);
+    }
+  }
+
+  return nullptr;
+}
+
+
 /// Wrapper for calling the partial integrator. This sets up all the threads, and what each threads do.
-std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n, int intensity, int nbthreads, FloatWrapper& fw, pthread_func_t partial) {
+/// Yes, I understand that I am passing 9 parameters to this function.
+std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n, int intensity, int nbthreads, pthread_func_t partial, DynamicSchedular* sched) {
   auto timeStart = hrc::now();
 
   // if we are doing interation then we need to set up the mutex
-  if (partial == integrate_iteration_partial)
-    pthread_mutex_init(&lock, nullptr);
+  pthread_mutex_init(&lock, nullptr);
   std::vector<std::pair<pthread_t, integrate_params*>> threads{  };
+  float result{  };
 
   // calculate work for each thread
   int depth = n / nbthreads;
@@ -174,7 +175,7 @@ std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n
 
   // start each thread and store the thread handle and its parameters (to prevent memory leaks)
   for (int i = 0; i < nbthreads - 1; ++i) {
-    integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, end, &fw[i], intensity };
+    integrate_params* param_in = new integrate_params{ functionid, a, b, n, &result, intensity, sched };
     pthread_t tmp{  };
     pthread_create(&tmp, nullptr, partial, param_in);
     threads.emplace_back(tmp, param_in);
@@ -186,7 +187,7 @@ std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n
   // As you can see here, if out partial function is thread, then fw will hold an array of floats and the array subscript
   // will return an seperate float for each thread. However id our partial function is iteration then fw will hold a single
   // float and the array subscripting will aways return the same float variable (but will be protected by a mutex)
-  integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, n, &fw[nbthreads - 1], intensity };
+  integrate_params* param_in = new integrate_params{ functionid, a, b, n, &result, intensity, sched };
   pthread_t tmp{  };
   pthread_create(&tmp, nullptr, partial, param_in);
   threads.emplace_back(tmp, param_in);
@@ -198,7 +199,7 @@ std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n
   }
 
   // calculate final result
-  float result = fw.get() * (b - a) / n;
+  result *= (b - a) / (float)n;
 
   // calculate final time taken
   auto timeEnd = hrc::now();
@@ -232,17 +233,10 @@ int main (int argc, char* argv[]) {
   // will have one float element. Otherwise it will be integrate_thread_partial and the FloatWrapper will hold
   // an array (one for each thread).
   pthread_func_t partial = nullptr;
-  FloatWrapper fw;
   switch (argv[7][0]) {
-    case 'i': {
-      partial = integrate_iteration_partial;
-      fw.reset(1);
-    } break;
-
-    case 't': {
-      partial = integrate_thread_partial;
-      fw.reset(nbthreads);
-    } break;
+    case 'i': partial = integrate_iteration_partial; break;
+    case 't': partial = integrate_thread_partial; break;
+    case 'c': partial = integrate_chunk_partial; break;
 
     default: {
       std::cout << "[E] What.... did.... you.... do....???" << std::endl;
@@ -263,11 +257,13 @@ int main (int argc, char* argv[]) {
     }
   }
 
+  DynamicSchedular ds{ n, granularity };
+
 #ifdef __cpp_structured_bindings
-  auto [answer, timeTaken] = integrate_wrapper(func, a, b, n, i, nbthreads, fw, partial);
+  auto [answer, timeTaken] = integrate_wrapper(func, a, b, n, i, nbthreads, partial, &ds);
 #else
   float answer, timeTaken;
-  std::tie(answer, timeTaken) = integrate_wrapper(func, a, b, n, i, nbthreads, fw, partial);
+  std::tie(answer, timeTaken) = integrate_wrapper(func, a, b, n, i, nbthreads, partial, &ds);
 #endif
 
   std::cout << answer << std::endl;
