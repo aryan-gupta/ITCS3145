@@ -1,0 +1,4 @@
+I am thread I am thread I am thread I am thread 1 in nbthreads3 in nbthreads2 in nbthreads
+
+
+0 in nbthreads
