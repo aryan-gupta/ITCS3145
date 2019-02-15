@@ -53,7 +53,7 @@ public:
   std::pair<int, int> get() {
     int start, end;
     pthread_mutex_lock(&mMux);
-    if (mCurrent == mEnd) {
+    if (mCurrent >= mEnd or mDone) {
       start = end = 0;
       mDone = true;
     } else {
