@@ -38,6 +38,7 @@
 		"sstream": "cpp",
 		"thread": "cpp",
 		"condition_variable": "cpp",
-		"mutex": "cpp"
+		"mutex": "cpp",
+		"atomic": "cpp"
 	}
 }
