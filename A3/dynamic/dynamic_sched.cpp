@@ -24,8 +24,10 @@
 
 using hrc = std::chrono::high_resolution_clock;
 
+
 using func_t = float (*)(float, int);
 using pthread_func_t = void* (*) (void*);
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,7 +42,9 @@ float f4(float x, int intensity);
 }
 #endif
 
-
+/// This class schedules the threads. The threads ask this for work to do and it replies
+/// with a range of n-values. I would have licked to use lock-free aproach, however there
+/// are no atomics in pthread: https://stackoverflow.com/questions/1130018
 class DynamicSchedular {
 public:
   using timeline_t = std::vector<std::tuple<std::chrono::time_point<hrc>, int, int>>;
@@ -50,8 +54,6 @@ private:
   const int mEnd;
   const int mGran;
   int mCurrent;
-  // @todo add a done mutex or lock-free apprach.
-  // No atomics in pthread: https://stackoverflow.com/questions/1130018 :((((((
   bool mDone;
 
   #ifdef GHANTT_CHART
@@ -60,7 +62,6 @@ private:
   #endif
 
 public:
-
   DynamicSchedular(int end, int gran, unsigned nbthreads) : mEnd{ end }, mGran{ gran }, mCurrent{ 0 }, mDone{ false } {
     pthread_mutex_init(&mMux, nullptr);
     #ifdef GHANTT_CHART
@@ -89,7 +90,6 @@ public:
   }
 
   bool done() {
-    // for now
     pthread_mutex_lock(&mMux);
     bool done = mDone;
     pthread_mutex_unlock(&mMux);
@@ -109,6 +109,7 @@ public:
   #endif
 };
 
+
 /// This struct is to pass params into the threaded function
 struct integrate_params {
   func_t functionid;
@@ -123,8 +124,7 @@ struct integrate_params {
 };
 
 
-
-/// The thread function for keeping a local variable and at the end adding up all the partial values
+/// The thread function for keeping a local variable and syncing before the thread dies
 void* integrate_thread_partial(void* param_void) {
   auto p = static_cast<integrate_params*>(param_void);
 
@@ -148,7 +148,7 @@ void* integrate_thread_partial(void* param_void) {
 }
 
 
-/// The thread function for keeping a local variable and at the end adding up all the partial values
+/// The thread function for keeping a local variable and syncing after each chunk
 void* integrate_chunk_partial(void* param_void) {
   auto p = static_cast<integrate_params*>(param_void);
 
@@ -171,6 +171,7 @@ void* integrate_chunk_partial(void* param_void) {
 }
 
 
+/// The thread function for keeping a local variable and syncing after each iteration
 void* integrate_iteration_partial(void* param_void) {
   auto p = static_cast<integrate_params*>(param_void);
 
@@ -194,8 +195,17 @@ void* integrate_iteration_partial(void* param_void) {
 }
 
 
-/// Wrapper for calling the partial integrator. This sets up all the threads, and what each threads do.
-/// Yes, I understand that I am passing 9 parameters to this function.
+/// This function is a wrapper to the partial integrator. Ittakes the function and aproximates the integral
+/// using the parsed command line parameters. This sets up all the threads, and what each threads do.
+/// @return The result of the integral and the time taken
+/// @param functionid The function to integrate
+/// @param a The upper bound of the integral
+/// @param b The lower bound of the integral
+/// @param n an integer which is the number of points to compute the approximation of the integral
+/// @param intensity an integer which is the second parameter to give the the function to integrate
+/// @param nbthreads The number of threads to use
+/// @param partial The address of the sync function (either integrate_thread_partial or integrate_iteration_partial)
+/// @param sched A pointer to the DynamicSchedular
 std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n, int intensity, int nbthreads, pthread_func_t partial, DynamicSchedular* sched) {
   auto timeStart = hrc::now();
   #ifdef GHANTT_CHART
@@ -319,22 +329,14 @@ int main (int argc, char* argv[]) {
 
   DynamicSchedular ds{ n, granularity, nbthreads };
 
-  #ifdef __cpp_structured_bindings
-  auto [answer, timeTaken] = integrate_wrapper(func, a, b, n, i, nbthreads, partial, &ds);
-  #ifdef GHANTT_CHART
-  auto [dsData, startTime] = ds.get_table();
-  #endif
-  #else
   float answer, timeTaken;
   std::tie(answer, timeTaken) = integrate_wrapper(func, a, b, n, i, nbthreads, partial, &ds);
+
+  // Print out the Ghantt chart data if applicable
   #ifdef GHANTT_CHART
   typename DynamicSchedular::timeline_t* dsData;
   std::chrono::time_point<hrc> startTime;
   std::tie(dsData, startTime) = ds.get_table();
-  #endif
-  #endif
-
-  #ifdef GHANTT_CHART
   process_and_print(dsData, nbthreads, startTime);
   #endif
 
