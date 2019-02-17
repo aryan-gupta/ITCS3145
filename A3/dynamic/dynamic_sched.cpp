@@ -39,7 +39,7 @@ float f4(float x, int intensity);
 
 class DynamicSchedular {
 public:
-  using timeline_t = std::vector<std::chrono::time_point<hrc>>;
+  using timeline_t = std::vector<std::tuple<std::chrono::time_point<hrc>, int, int>>;
 
 private:
   pthread_mutex_t mMux;
@@ -50,14 +50,6 @@ private:
   // No atomics in pthread: https://stackoverflow.com/questions/1130018 :((((((
   bool mDone;
 
-  // The idealogy behind this is that. Each thread will update its own timeline when it calls get.
-  // At the end, before the thread dies, it will move its data into the master table. Because
-  // moveing a vector is as simple as copying a few pointers, I will be including it in the time
-  // as compared to stopping the time when the threads finish then moving the data over.
-  // mTable will not needed to be protected by a mutex because each element will only be accessed
-  // by one thread
-  // thread_local must be declared static. makes sense, I guess
-  static thread_local timeline_t mTimeLine;
   timeline_t* mTable;
   std::chrono::time_point<hrc> mStartTime;
 
@@ -69,22 +61,20 @@ public:
   }
 
   std::pair<int, int> get(int id) {
-    mTimeLine.push_back(hrc::now());
-
     int start, end;
     pthread_mutex_lock(&mMux);
     if (mCurrent >= mEnd or mDone) {
       start = end = 0;
       mDone = true;
-
-      // Ownership gets transfered here
-      mTable[id] = std::move(mTimeLine);
     } else {
       /// @todo fix the edge cases for this
       start = mCurrent;
       end = mCurrent = mCurrent + mGran;
     }
     pthread_mutex_unlock(&mMux);
+
+    mTable[id].emplace_back(hrc::now(), start, end);
+
     return { start, end };
   }
 
@@ -106,8 +96,6 @@ public:
     return { mTable, mStartTime };
   }
 };
-
-thread_local DynamicSchedular::timeline_t DynamicSchedular::mTimeLine = {  };
 
 /// This struct is to pass params into the threaded function
 struct integrate_params {
@@ -250,10 +238,16 @@ void process_and_print(typename DynamicSchedular::timeline_t* data, unsigned nbt
   for (int i = 0; i < nbthreads; ++i) {
     auto vec = data[i];
     for (auto& tp : vec) {
-        std::chrono::duration<double> elapse{ tp - start };
-        float time = elapse.count();
-        std::cout << time << "    ";
+      int start = std::get<1>(tp), end = std::get<2>(tp);
+      std::cout << start << "-" << end << ",";
     }
+    std::cout << std::endl;
+    for (auto& tp : vec) {
+      std::chrono::duration<double> elapse{ std::get<0>(tp) - start };
+      float time = elapse.count();
+      std::cout << time << ",";
+    }
+    std::cout << std::endl;
     std::cout << std::endl;
   }
 }
