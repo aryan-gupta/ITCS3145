@@ -39,6 +39,8 @@
 		"thread": "cpp",
 		"condition_variable": "cpp",
 		"mutex": "cpp",
-		"atomic": "cpp"
+		"atomic": "cpp",
+		"cstdarg": "cpp",
+		"deque": "cpp"
 	}
 }
