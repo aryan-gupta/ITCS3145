@@ -15,6 +15,10 @@
 
 #include <pthread.h>
 
+/// This define controls if we want to output our times for the Ghantt chart
+// #define GHANTT_CHART
+// ./dynamic_sched 1 0 10 10000 100000000 4 chunk 500 > test.txt
+
 /// This code got very complicated really fast. I will try to explain as best as I can. The integrate_wrapper
 /// function sets up the work that each thread will do and starts each thread.
 
@@ -50,14 +54,18 @@ private:
   // No atomics in pthread: https://stackoverflow.com/questions/1130018 :((((((
   bool mDone;
 
+#ifdef GHANTT_CHART
   timeline_t* mTable;
   std::chrono::time_point<hrc> mStartTime;
+#endif
 
 public:
 
   DynamicSchedular(int end, int gran, unsigned nbthreads) : mEnd{ end }, mGran{ gran }, mCurrent{ 0 }, mDone{ false } {
     pthread_mutex_init(&mMux, nullptr);
+#ifdef GHANTT_CHART
     mTable = new timeline_t[nbthreads];
+#endif
   }
 
   std::pair<int, int> get(int id) {
@@ -73,7 +81,9 @@ public:
     }
     pthread_mutex_unlock(&mMux);
 
+#ifdef GHANTT_CHART
     mTable[id].emplace_back(hrc::now(), start, end);
+#endif
 
     return { start, end };
   }
@@ -86,6 +96,7 @@ public:
     return done;
   }
 
+#ifdef GHANTT_CHART
   // @warning This function is not thread-safe
   void set_start_time(std::chrono::time_point<hrc>& tm) {
     mStartTime = tm;
@@ -95,6 +106,7 @@ public:
   std::pair<timeline_t*, std::chrono::time_point<hrc>> get_table() {
     return { mTable, mStartTime };
   }
+#endif
 };
 
 /// This struct is to pass params into the threaded function
@@ -186,7 +198,9 @@ void* integrate_iteration_partial(void* param_void) {
 /// Yes, I understand that I am passing 9 parameters to this function.
 std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n, int intensity, int nbthreads, pthread_func_t partial, DynamicSchedular* sched) {
   auto timeStart = hrc::now();
+#ifdef GHANTT_CHART
   sched->set_start_time(timeStart);
+#endif
 
   // if we are doing interation then we need to set up the mutex
   pthread_mutex_init(&lock, nullptr);
@@ -234,6 +248,7 @@ std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n
   return { result, time };
 }
 
+#ifdef GHANTT_CHART
 void process_and_print(typename DynamicSchedular::timeline_t* data, unsigned nbthreads, std::chrono::time_point<hrc>& start) {
   for (int i = 0; i < nbthreads; ++i) {
     auto vec = data[i];
@@ -251,6 +266,7 @@ void process_and_print(typename DynamicSchedular::timeline_t* data, unsigned nbt
     std::cout << std::endl;
   }
 }
+#endif
 
 
 int main (int argc, char* argv[]) {
@@ -304,17 +320,22 @@ int main (int argc, char* argv[]) {
 
 #ifdef __cpp_structured_bindings
   auto [answer, timeTaken] = integrate_wrapper(func, a, b, n, i, nbthreads, partial, &ds);
+#ifdef GHANTT_CHART
   auto [dsData, startTime] = ds.get_table();
+#endif
 #else
   float answer, timeTaken;
   std::tie(answer, timeTaken) = integrate_wrapper(func, a, b, n, i, nbthreads, partial, &ds);
-
+#ifdef GHANTT_CHART
   typename DynamicSchedular::timeline_t* dsData;
   std::chrono::time_point<hrc> startTime;
   std::tie(dsData, startTime) = ds.get_table();
 #endif
+#endif
 
+#ifdef GHANTT_CHART
   process_and_print(dsData, nbthreads, startTime);
+#endif
 
   std::cout << answer << std::endl;
   std::cerr << timeTaken << std::endl;
