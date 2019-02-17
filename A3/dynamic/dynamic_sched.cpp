@@ -119,10 +119,10 @@ struct integrate_params {
   int intensity;
   DynamicSchedular* sched;
   int id;
+  pthread_mutex_t* lock;
 };
 
 
-pthread_mutex_t lock;
 
 /// The thread function for keeping a local variable and at the end adding up all the partial values
 void* integrate_thread_partial(void* param_void) {
@@ -140,9 +140,9 @@ void* integrate_thread_partial(void* param_void) {
     }
   }
 
-  pthread_mutex_lock(&lock);
+  pthread_mutex_lock(p->lock);
   *p->answer += ans;
-  pthread_mutex_unlock(&lock);
+  pthread_mutex_unlock(p->lock);
 
   return nullptr;
 }
@@ -162,9 +162,9 @@ void* integrate_chunk_partial(void* param_void) {
       float x = p->a + ((float)i + 0.5) * ban;
       ans += p->functionid(x, p->intensity);
     }
-    pthread_mutex_lock(&lock);
+    pthread_mutex_lock(p->lock);
     *p->answer += ans;
-    pthread_mutex_unlock(&lock);
+    pthread_mutex_unlock(p->lock);
   }
 
   return nullptr;
@@ -184,9 +184,9 @@ void* integrate_iteration_partial(void* param_void) {
       float x = p->a + ((float)i + 0.5) * ban;
       float ans = p->functionid(x, p->intensity);
 
-      pthread_mutex_lock(&lock);
+      pthread_mutex_lock(p->lock);
       *p->answer += ans;
-      pthread_mutex_unlock(&lock);
+      pthread_mutex_unlock(p->lock);
     }
   }
 
@@ -203,6 +203,7 @@ std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n
   #endif
 
   // if we are doing interation then we need to set up the mutex
+  pthread_mutex_t lock;
   pthread_mutex_init(&lock, nullptr);
   std::vector<std::pair<pthread_t, integrate_params*>> threads{  };
   float result{  };
@@ -214,7 +215,7 @@ std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n
 
   // start each thread and store the thread handle and its parameters (to prevent memory leaks)
   for (int i = 0; i < nbthreads - 1; ++i) {
-    integrate_params* param_in = new integrate_params{ functionid, a, b, n, &result, intensity, sched, i };
+    integrate_params* param_in = new integrate_params{ functionid, a, b, n, &result, intensity, sched, i, &lock };
     pthread_t tmp{  };
     pthread_create(&tmp, nullptr, partial, param_in);
     threads.emplace_back(tmp, param_in);
@@ -226,7 +227,7 @@ std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n
   // As you can see here, if out partial function is thread, then fw will hold an array of floats and the array subscript
   // will return an seperate float for each thread. However id our partial function is iteration then fw will hold a single
   // float and the array subscripting will aways return the same float variable (but will be protected by a mutex)
-  integrate_params* param_in = new integrate_params{ functionid, a, b, n, &result, intensity, sched, nbthreads - 1 };
+  integrate_params* param_in = new integrate_params{ functionid, a, b, n, &result, intensity, sched, nbthreads - 1, &lock };
   pthread_t tmp{  };
   pthread_create(&tmp, nullptr, partial, param_in);
   threads.emplace_back(tmp, param_in);

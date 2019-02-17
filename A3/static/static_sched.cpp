@@ -13,7 +13,6 @@ using hrc = std::chrono::high_resolution_clock;
 #include <vector>
 #include <memory>
 #include <stdexcept>
-
 #include <pthread.h>
 
 
@@ -45,12 +44,8 @@ struct integrate_params {
   int en;
   float* answer;
   int intensity;
+  pthread_mutex_t* lock;
 };
-
-
-/// The only global variable. Mutex prevents shared variable access when updating the integral value
-/// from becoming a data race
-static pthread_mutex_t lock;
 
 
 /// The thread function for keeping a local variable and adding to shared variable before the thread dies
@@ -65,9 +60,9 @@ void* integrate_thread_partial(void* param_void) {
     ans += p->functionid(x, p->intensity);
   }
 
-  pthread_mutex_lock(&lock);
+  pthread_mutex_lock(p->lock);
   *p->answer += ans;
-  pthread_mutex_unlock(&lock);
+  pthread_mutex_unlock(p->lock);
 
   return nullptr;
 }
@@ -83,9 +78,9 @@ void* integrate_iteration_partial(void* param_void) {
     float x = p->a + ((float)i + 0.5) * ban;
     float ans = p->functionid(x, p->intensity);
 
-    pthread_mutex_lock(&lock);
+    pthread_mutex_lock(p->lock);
     *p->answer += ans;
-    pthread_mutex_unlock(&lock);
+    pthread_mutex_unlock(p->lock);
   }
 
   return nullptr;
@@ -106,6 +101,7 @@ std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n
   auto timeStart = hrc::now();
 
   // set up data structs
+  pthread_mutex_t lock;
   pthread_mutex_init(&lock, nullptr);
   std::vector<std::pair<pthread_t, integrate_params*>> threads{  };
   float result{  };
@@ -117,7 +113,7 @@ std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n
 
   // start each thread and store the thread handle and its parameters (to prevent memory leaks)
   for (int i = 0; i < nbthreads - 1; ++i) {
-    integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, end, &result, intensity };
+    integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, end, &result, intensity, &lock };
     pthread_t tmp{  };
     pthread_create(&tmp, nullptr, partial, param_in);
     threads.emplace_back(tmp, param_in);
@@ -129,7 +125,7 @@ std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n
   // As you can see here, if out partial function is thread, then fw will hold an array of floats and the array subscript
   // will return an seperate float for each thread. However id our partial function is iteration then fw will hold a single
   // float and the array subscripting will aways return the same float variable (but will be protected by a mutex)
-  integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, n, &result, intensity };
+  integrate_params* param_in = new integrate_params{ functionid, a, b, n, start, n, &result, intensity, &lock };
   pthread_t tmp{  };
   pthread_create(&tmp, nullptr, partial, param_in);
   threads.emplace_back(tmp, param_in);
@@ -165,9 +161,6 @@ int main (int argc, char* argv[]) {
   int n  = std::atoi(argv[4]);
   int i  = std::atoi(argv[5]);
   int nbthreads = std::atoi(argv[6]);
-
-  // maybe use string_view to make this more robust? rather than comparing the first char?
-  // on second thought, string_view is c++17, rather not use it, compiler may not support
 
   // this section of code decides on which function should be threaded. If the parameter passed in is
   // iteration, then the function that will be threaded is integrate_iteration_partial and the FloatWrapper
