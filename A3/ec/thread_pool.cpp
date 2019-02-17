@@ -36,13 +36,30 @@ struct TPS_node {
 class ThreadPoolSchedular {
 	using func_t = void (*) ();
 	using node_t = TPS_node<func_t>;
+	using array_t = std::atomic<node_t*>*;
 
-	std::atomic<node_t*> mHead;
-	std::atomic<node_t*> mTail;
-	std::atomic<bool> mEFlag;
+	array_t mArray;
+	std::atomic<size_t> mStart;
+	std::atomic<size_t> mEnd;
+	size_t mSize;
+	std::atomic<bool> mFlag;
+
+	void construct(size_t size) {
+		array_t array = mArray.load(std::memory_order_relaxed);
+		if (array == nullptr) {
+			bool flag = false;
+			if (mFlag.compare_exchange_strong(flag, true)) {
+				mArray = new std::atomic<node_t*>[mSize];
+				mFlag.store(false);
+			}
+		}
+
+	}
 
 public:
-	ThreadPoolSchedular() : mHead{  }, mTail{  } {	}
+	ThreadPoolSchedular() {
+		construct(16);
+	}
 
 	void pop() {
 		auto node = mHead.load(std::memory_order_relaxed);
