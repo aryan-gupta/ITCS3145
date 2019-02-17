@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <chrono>
+using hrc = std::chrono::high_resolution_clock;
 #include <utility>
 #include <tuple>
 #include <vector>
@@ -15,13 +16,10 @@
 
 #include <pthread.h>
 
-/// This code got very complicated really fast. I will try to explain as best as I can. The integrate_wrapper
-/// function sets up the work that each thread will do and starts each thread.
-
-using hrc = std::chrono::high_resolution_clock;
 
 using func_t = float (*)(float, int);
 using pthread_func_t = void* (*) (void*);
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,9 +47,13 @@ struct integrate_params {
   int intensity;
 };
 
-pthread_mutex_t lock;
 
-/// The thread function for keeping a local variable and at the end adding up all the partial values
+/// The only global variable. Mutex prevents shared variable access when updating the integral value
+/// from becoming a data race
+static pthread_mutex_t lock;
+
+
+/// The thread function for keeping a local variable and adding to shared variable before the thread dies
 void* integrate_thread_partial(void* param_void) {
   auto p = static_cast<integrate_params*>(param_void);
 
@@ -71,8 +73,7 @@ void* integrate_thread_partial(void* param_void) {
 }
 
 
-/// The thread function for using a mutex to update one sigular result variable. the mutex prevents
-/// a race condition.
+/// The thread function for using a mutex to update one sigular result variable after each iteration
 void* integrate_iteration_partial(void* param_void) {
   auto p = static_cast<integrate_params*>(param_void);
 
@@ -91,11 +92,20 @@ void* integrate_iteration_partial(void* param_void) {
 }
 
 
-/// Wrapper for calling the partial integrator. This sets up all the threads, and what each threads do.
+/// This function is a wrapper to the partial integrator. Ittakes the function and aproximates the integral
+/// using the parsed command line parameters. This sets up all the threads, and what each threads do.
+/// @return The result of the integral and the time taken
+/// @param functionid The function to integrate
+/// @param a The upper bound of the integral
+/// @param b The lower bound of the integral
+/// @param n an integer which is the number of points to compute the approximation of the integral
+/// @param intensity an integer which is the second parameter to give the the function to integrate
+/// @param nbthreads The number of threads to use
+/// @param partial The address of the sync function (either integrate_thread_partial or integrate_iteration_partial)
 std::pair<float, float> integrate_wrapper(func_t functionid, int a, int b, int n, int intensity, int nbthreads, pthread_func_t partial) {
   auto timeStart = hrc::now();
 
-  // if we are doing interation then we need to set up the mutex
+  // set up data structs
   pthread_mutex_init(&lock, nullptr);
   std::vector<std::pair<pthread_t, integrate_params*>> threads{  };
   float result{  };
