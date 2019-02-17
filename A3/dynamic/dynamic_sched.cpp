@@ -72,12 +72,11 @@ public:
   std::pair<int, int> get(int id) {
     int start, end;
     pthread_mutex_lock(&mMux);
-    if (mCurrent >= mEnd or mDone) {
-      start = end = 0;
+    start = mCurrent;
+    if (mCurrent + mGran > mEnd) {
+      end = mEnd;
       mDone = true;
     } else {
-      /// @todo fix the edge cases for this
-      start = mCurrent;
       end = mCurrent = mCurrent + mGran;
     }
     pthread_mutex_unlock(&mMux);
