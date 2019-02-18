@@ -12,7 +12,8 @@
 #include <condition_variable>
 #include <atomic>
 #include <queue>
-
+#include <thread>
+#include <functional>
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,90 +28,147 @@ float f4(float x, int intensity);
 }
 #endif
 
+static std::atomic_bool gEnd;
+
+struct TPS_func_wrapper_base {
+	virtual ~TPS_func_wrapper_base() {  };
+	virtual void operator() () = 0;
+};
+
 template <typename T>
-struct TPS_node {
-	std::atomic<TPS_node*> next;
-	T data;
+class TPS_func_wrapper : public TPS_func_wrapper_base {
+	T mFunc;
+
+public:
+	TPS_func_wrapper(T func) : mFunc{ func } {  }
+
+	virtual ~TPS_func_wrapper() = default;
+
+	virtual void operator() () {
+		mFunc();
+	}
+};
+
+class TPS_callable {
+	TPS_func_wrapper_base* mFunc;
+
+public:
+	TPS_callable() = delete;
+	TPS_callable(TPS_func_wrapper_base* func) : mFunc{ func } {  }
+
+	~TPS_callable() {
+		delete mFunc;
+	}
+
+	void operator() () {
+		mFunc->operator()();
+	}
 };
 
 class ThreadPoolSchedular {
-	using func_t = void (*) ();
-	using node_t = TPS_node<func_t>;
-	using array_t = std::atomic<node_t*>*;
+public:
+	using callable_t = TPS_callable;
 
-	array_t mArray;
-	std::atomic<size_t> mStart;
-	std::atomic<size_t> mEnd;
-	size_t mSize;
-	std::atomic<bool> mFlag;
+private:
+	using func_t = TPS_func_wrapper_base*;
+	using lock_t = std::unique_lock<std::mutex>;
 
-	void construct(size_t size) {
-		array_t array = mArray.load(std::memory_order_relaxed);
-		if (array == nullptr) {
-			bool flag = false;
-			if (mFlag.compare_exchange_strong(flag, true)) {
-				mArray = new std::atomic<node_t*>[mSize];
-				mFlag.store(false);
-			}
-		}
-
-	}
+	std::queue<func_t> mQ;
+	std::mutex mLock;
+	std::condition_variable mSignal;
 
 public:
-	ThreadPoolSchedular() {
-		construct(16);
+	ThreadPoolSchedular() : mQ{  }, mLock{  }, mSignal{  } {}
+
+	callable_t pop() {
+		func_t func = nullptr;
+		{
+			lock_t lk{ mLock };
+			if (mQ.empty())
+				mSignal.wait(lk, [this](){ return !mQ.empty(); });
+			func = mQ.front();
+			mQ.pop();
+		}
+		return { func };
 	}
 
-	void pop() {
-		auto node = mHead.load(std::memory_order_relaxed);
-		do {
-			// if the queue is empty, load new value and spin
-			if (node == nullptr) {
-				node = mHead.load(std::memory_order_relaxed);
-				continue;
-			}
-		} while(mHead.compare_exchange_weak(node, node->next));
+	template <typename T>
+	void push(T func) {
+		func_t wrapper = new TPS_func_wrapper<T>{ func };
+		{
+			lock_t lk{ mLock };
+			mQ.push(wrapper);
+		}
+		mSignal.notify_one();
 	}
 
-	void push(func_t func) {
-		/// Ok so heres the algo: if mTail is null then the queue is empty. Then get exclusive access to both mHead and mTail
-		/// and add the node. If the queue is not empty
-		bool added = false;
-		node_t* newNode = new node_t{ nullptr, func };
-		// IF the que is empty then we need to update both mHead and mTail. We need the double checked singleton pattern
-		/// First check if the node is null. If it is, try to get exclusive access to both
-		/// mHead and mTail. Load mTail again. This load can be relaxed because we of the acquire
-		/// barrier from the flag. Test for null again. (make sure no other thread updated and
-		/// cleared the flag). And then add the node
-		/////// AHHHHHHH IM GETTING A BRAIN ANYERISMM
-		do {
-			auto node = mTail.load(std::memory_order_relaxed);
-			if (node == nullptr) {
-				bool flag = false;
-				// This CES MUST be aquire because if we successfully get exclusive access then we need to see the write to mTail
-				// from other threads (to double check that mTail is nullptr). If the flag value is true then do nothing because
-				// another thread is updating the value
-				if (mEFlag.compare_exchange_strong(flag, true, std::memory_order_acquire, std::memory_order_relaxed)) {
-					node = mTail.load(std::memory_order_relaxed);
-					if (node == nullptr) {
-						mHead = mTail = newNode;
-						added = true;
-					}
-					// We want to see the write to mHead and mTail from this thread in the other theads
-					mEFlag.store(false, std::memory_order_release);
-				}
-			} else {
-				node_t* nextNode = nullptr;
-				if (node->next.compare_exchange_weak(nextNode, newNode))
-
-				if (mTail.compare_exchange_weak(node, newNode))
-					added = true;
-			}
-		} while (!added);
+	int size() {
+		lock_t lk{ mLock };
+		return mQ.size();
 	}
-
 };
 
+class ConsolePrinter {
+	int mID;
+	std::mutex& mCOLock;
+
+public:
+	ConsolePrinter() = default;
+	ConsolePrinter(int id, std::mutex& lk) : mID{ id }, mCOLock{ lk } {  }
+
+	void operator()() {
+		{
+			std::unique_lock<std::mutex> lk{ mCOLock };
+			std::cout << mID << std::endl;
+		}
+		std::this_thread::sleep_for(std::chrono::seconds{ 1 });
+	}
+};
+
+void consumer_thread_func(ThreadPoolSchedular& tps) {
+	while (!gEnd) {
+		auto func = tps.pop();
+		func();
+	}
+}
+
+std::mutex gLock;
+void print_crap(int id) {
+	{
+		std::unique_lock<std::mutex> lk{ gLock };
+		std::cout << id << std::endl;
+	}
+
+	std::this_thread::sleep_for(std::chrono::seconds{ 1 });
+}
+
+
+void producer_thread_func(ThreadPoolSchedular& tps, std::mutex& lock, int start, int end) {
+	while(start++ != end) {
+		// ConsolePrinter printer{ start, std::ref(lock) };
+		auto func = std::bind(print_crap, start);
+		tps.push(func);
+	}
+}
+
 int main(int argc, char* argv[]) {
+	std::mutex lock{  };
+	gEnd = false;
+
+	ThreadPoolSchedular tps{  };
+
+	std::thread t1{ producer_thread_func, std::ref(tps), std::ref(lock), 0, 50 };
+	std::thread t2{ producer_thread_func, std::ref(tps), std::ref(lock), 51, 100 };
+	t1.join();
+	t2.join();
+
+	std::cout << tps.size() << std::endl;
+
+	for (int i = 0; i < 4; ++i) {
+		std::thread th{ consumer_thread_func, std::ref(tps) };
+		th.detach();
+	}
+
+while(1);
 
 }
