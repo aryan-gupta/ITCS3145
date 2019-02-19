@@ -41,6 +41,7 @@
 		"mutex": "cpp",
 		"atomic": "cpp",
 		"cstdarg": "cpp",
-		"deque": "cpp"
+		"deque": "cpp",
+		"functional": "cpp"
 	}
 }
