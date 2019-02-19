@@ -1,6 +1,6 @@
 // WARNING: Because this is extra credit, I am not taking consideration with backwards compatiblity. Alot of the code
 // here is cutting edge (mostly c++17 and a few c++20). I was able to compile this code with g++ (GCC) 8.2.1 20181127
-// with the -std=c++17 option
+// with the -std=c++17 option. If I get the time I will add some PPD for pthreads
 
 #include <iostream>
 #include <stdio.h>
@@ -21,15 +21,10 @@
 #include <queue>
 #include <condition_variable>
 
-#include "thread_pool.hpp"
-
 using hrc = std::chrono::high_resolution_clock;
 
 
 using func_t = float (*)(float, int);
-using pthread_func_t = void* (*) (void*);
-
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -43,6 +38,13 @@ float f4(float x, int intensity);
 }
 #endif
 
+
+// Internal implementation for the ThreadPoolSchedular. I wanted to make the code as modular as possible
+// so I took some inspiration from std::any. The gist of this code is that there is a base class with a v-table
+// for operator(), there is a templated derived class called TPS_func_wrapper. Becuase this class is templated,
+// we can erase the type of the template because the only thing we want to do with this is call the callable.
+// To farther abstract the internals, I created a TPS_callable that will make sure that the memory gets properly
+// released and the user can call an object rather than call a pointer to the object.
 namespace detail {
 
 /// This class is the base so we can perform some time erasure
@@ -52,7 +54,10 @@ struct TPS_func_wrapper_base {
 };
 
 
-/// This is the derived class of the base
+/// This is the derived class of the base. Because this class is templated
+/// every version of this code will derive from the base. That means we will have
+/// one base class and many types of derived class (one for each type erasure). This
+/// way it doesnt matter what T is, as long as its a callable, we can call it.
 template <typename T>
 class TPS_func_wrapper : public TPS_func_wrapper_base {
 	T mFunc;
@@ -72,7 +77,7 @@ class TPS_callable {
 	TPS_func_wrapper_base* mFunc;
 
 public:
-	TPS_callable() = delete;
+	TPS_callable() = delete; // dont want to deal with nullptr
 	TPS_callable(TPS_func_wrapper_base* func) : mFunc{ func } {  }
 
 	~TPS_callable() {
@@ -87,8 +92,12 @@ public:
 } // namespace detail
 
 
-/// This class is a secdular, you can post functions on the schedular and
-/// another thread can pull jobs from this
+/// This class is the thread pool schedular, you can post functions on the schedular and
+/// another thread can pull jobs from this and compleate the job. The job can be any callable
+/// that does not return anything or take anything as a parameter. This means callable objects,
+/// lambda functions, plain function pointers and std::bind are acceptable. This Schedular
+/// also takes care of ending the threads when we are done with the program.
+// @todo Allow the user to call the callable with their own variac parameters
 class ThreadPoolSchedular {
 public:
 	using callable_t = detail::TPS_callable;
@@ -98,23 +107,27 @@ private:
 	using lock_t = std::unique_lock<std::mutex>;
 	template <typename A> using derived_t = detail::TPS_func_wrapper<A>;
 
+	// @todo make this lock-free? maybe
 	std::queue<func_t> mQ;
 	std::mutex mLock;
 	std::condition_variable mSignal;
 
-public:
-	ThreadPoolSchedular() : mQ{  }, mLock{  }, mSignal{  } {}
+	std::atomic_bool mKill;
 
-	callable_t pop() {
+public:
+	ThreadPoolSchedular() : mQ{  }, mLock{  }, mSignal{  }, mKill{ false } {}
+
+	std::pair<bool, callable_t> pop() {
 		func_t func = nullptr;
 		{
 			lock_t lk{ mLock };
-			if (mQ.empty())
-				mSignal.wait(lk, [this](){ return !mQ.empty(); });
+			/// if its empty wait for more jobs or stop waiting if we eant to kill threads
+			if (mQ.empty()) mSignal.wait(lk, [this](){ return !mQ.empty() or mKill; });
+			if (mKill) return { false, nullptr };
 			func = mQ.front();
 			mQ.pop();
 		}
-		return { func };
+		return { true, func };
 	}
 
 	template <typename T>
@@ -132,10 +145,13 @@ public:
 		return mQ.empty();
 	}
 
+	void end() {
+		mKill = true;
+		mSignal.notify_all();
+	}
+
 };
 
-
-std::mutex cout_mux{  };
 
 enum class SYNC {
 	ITERATE,
@@ -144,9 +160,10 @@ enum class SYNC {
 };
 
 
-std::atomic_bool gEndThread;
 
-
+/// This holds information about a integration Job being run in the thead_pool. Keeps a count
+/// of how many jobs are left to compleate before the answer can be ready. Also has a mutex to
+/// protect the answer
 struct JobHolder {
 	float answer;
 	std::mutex lock;
@@ -159,6 +176,11 @@ struct JobHolder {
 	}
 };
 
+
+/// This class holds a job that needs to be done when integrating. It stores the start and the end values
+/// it is taking care of. For each integration there will be many of these classes. Each thread will pull
+/// a work from the schedular, call the operator() on this and sync up with the shared variable.
+/// @todo do we really need the iteration sync meathod? I might remove this template class
 template <SYNC sync>
 class integrate_work {
 	func_t functionid;
@@ -201,6 +223,10 @@ public:
 		}
 		if constexpr (sync == SYNC::CHUNK) sync_with_shared(ans);
 
+		if (job->left == 1) {
+			std::unique_lock lk{ job->lock };
+			job->answer *= ban;
+		}
 		job->left.fetch_add(-1);
 	}
 };
@@ -208,8 +234,9 @@ public:
 
 void thread_work(ThreadPoolSchedular& sch) {
 	while(true) {
-		auto work = sch.pop();
-		work();
+		auto [cont, work] = sch.pop();
+		if (cont) work();
+		else return;
 	}
 }
 
@@ -221,7 +248,7 @@ void start_threads(ThreadPoolSchedular& sch, size_t num) {
 	}
 }
 
-
+/// This function breaks the integration into jobs that the threads can compleate. Then posts the jobs in the schedular
 // returns the current number of jobs compleated and the number of total jobs it is enqued
 JobHolder* submit_jobs(ThreadPoolSchedular& tps, func_t functionid, int a, int b, int n, int intensity, int depth, SYNC sync) {
 	JobHolder* jh = new JobHolder{  };
@@ -258,30 +285,7 @@ JobHolder* submit_jobs(ThreadPoolSchedular& tps, func_t functionid, int a, int b
 }
 
 
-int main (int argc, char* argv[]) {
-
-	std::vector<JobHolder*> jobs{  };
-
-	std::cout << "Please choose the number of threads to start..." << std::endl;
-	std::cout << ":: ";
-	unsigned nbthreads{  };
-
-	do {
-		int tmp;
-		std::cin >> tmp;
-		if (tmp > 0) {
-			nbthreads = tmp;
-		} else {
-			std::cout << "That is incorrect... Try again\n:: ";
-			std::cin.clear();
-			std::cin.ignore(SIZE_MAX);
-		}
-	} while(nbthreads == 0);
-
-	ThreadPoolSchedular tps{  };
-	start_threads(tps, nbthreads);
-	std::cout << "Started " << nbthreads << " threads" << std::endl;
-
+std::unique_ptr<JobHolder> start_new_integration(ThreadPoolSchedular& tps) {
 	std::cout << "What function would you like to integrate?" << std::endl;
 	std::cout << ":: ";
 	unsigned short id;
@@ -295,7 +299,7 @@ int main (int argc, char* argv[]) {
 		case 4: func = f4; break;
 		default: {
 			std::cout << "[E] Ya, you screwed up... have fun" << std::endl;
-			return -2;
+			return nullptr;
 		}
 	}
 
@@ -326,14 +330,45 @@ int main (int argc, char* argv[]) {
 
 	std::cout << "Calculating..." << std::endl;
 
-	auto handle = submit_jobs(tps, func, a, b, n, intensity, gran, SYNC::ITERATE);
+	return std::unique_ptr<JobHolder>{ submit_jobs(tps, func, a, b, n, intensity, gran, SYNC::ITERATE) };
+}
 
+#ifndef THREAD_POOL_AS_HEADER
+int main (int argc, char* argv[]) {
+
+	std::vector<std::unique_ptr<JobHolder>> jobs{  };
+
+	std::cout << "Please choose the number of threads to start..." << std::endl;
+	std::cout << ":: ";
+	unsigned nbthreads{  };
+
+	do {
+		int tmp;
+		std::cin >> tmp;
+		if (tmp > 0) {
+			nbthreads = tmp;
+		} else {
+			std::cout << "That is incorrect... Try again\n:: ";
+			std::cin.clear();
+			std::cin.ignore(SIZE_MAX);
+		}
+	} while (nbthreads == 0);
+
+	ThreadPoolSchedular tps{  };
+	start_threads(tps, nbthreads);
+	std::cout << "Started " << nbthreads << " threads" << std::endl;
+
+	do {
+		std::cout << "What would you like to do?"
+		std::cout <<
+		auto handle = start_new_integration(tps);
+	} while (choice != 3);
 
 	while (!handle->done());
+	std::cout << "Answer is: " << handle->answer << std::endl;
 
-	float ans = handle->answer * (b - a) / (float)n;
-
-	std::cout << "Answer is: " << ans << std::endl;
+	tps.end();
 
 	return 0;
 }
+#endif

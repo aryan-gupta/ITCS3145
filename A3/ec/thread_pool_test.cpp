@@ -15,7 +15,8 @@
 #include <thread>
 #include <functional>
 
-#include "thread_pool.hpp"
+#define THREAD_POOL_AS_HEADER
+#include "thread_pool_sched.cpp"
 
 static std::atomic_bool gEnd;
 
@@ -41,7 +42,7 @@ public:
 
 void consumer_thread_func(ThreadPoolSchedular& tps) {
 	while (!gEnd) {
-		auto func = tps.pop();
+		auto [cont, func] = tps.pop();
 		func();
 	}
 }
