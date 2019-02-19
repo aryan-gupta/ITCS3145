@@ -8,8 +8,14 @@
 #include <thread>
 #include <chrono>
 
+#include "thread_pool.hpp"
 
-using hrc = std::chrono::high_resolution_clock;
+using clk = std::chrono::high_resolution_clock;
+static std::chrono::duration<double> gBusyTime{ 0 };
+static std::atomic_int gBusyLoops{ 0 };
+static std::mutex out_mux;
+
+
 
 // This class serves the purpose of testing that there are no useless
 // copies of data. The copy functions are deleted meaning there when an
@@ -27,6 +33,10 @@ public:
 	/// WE CAN MOVE THIS
 	NoCopy(NoCopy&&) = default;
 	NoCopy& operator= (NoCopy&&) = default;
+
+	int get() const {
+		return data;
+	}
 
 	// here we goooooo........
 	// well thats great no default compare operators until c++20
@@ -137,6 +147,96 @@ void merge_sort(I begin, I end, unsigned nbt, O op = {  }) {
 }
 }
 
+namespace parallel_threadpool {
+
+struct JobHandle {
+	std::atomic_bool done;
+};
+
+template <typename I, typename O>
+struct MergeSortWork {
+	I mBegin;
+	I mMid;
+	I mEnd;
+	O mOp;
+	JobHandle* mLeft;
+	JobHandle* mRight;
+	JobHandle* mHandle;
+
+public:
+	MergeSortWork() = default;
+	// @todo Make this code so we reduce the amount of copies
+	MergeSortWork(MergeSortWork& ) = default;
+	MergeSortWork(MergeSortWork&& ) = default;
+
+	MergeSortWork(I begin, I mid, I end, O op, JobHandle* left, JobHandle* right, JobHandle* mine)
+		: mBegin{ begin }
+		, mMid{ mid }
+		, mEnd{ end }
+		, mOp{ op }
+		, mLeft{ left }
+		, mRight{ right }
+		, mHandle{ mine }
+		{}
+
+	void operator() () {
+		// @todo see how much time we waste here
+		// or spinning for more work to do
+		while (!mLeft->done or !mRight->done); // wait until the parent two nodes are sorted
+		auto merged = ::detail::merge_sort_merge(mBegin, mMid, mEnd, mOp);
+		std::move(merged.begin(), merged.end(), mBegin);
+		mHandle->done = true;
+	}
+};
+
+template <typename I>
+void print(I begin, I end) {
+	std::unique_lock lk { out_mux };
+	for (; begin != end; ++begin) {
+		std::cout << begin->get() << " ";
+	}
+	std::cout << "\n";
+
+}
+
+template <typename I, typename O>
+JobHandle* merge_sort_threadpool_sort(ThreadPoolSchedular& tps, I begin, I end, O op) {
+	auto size = std::distance(begin, end);
+	if (size <= 1) return new JobHandle{ true };
+
+	auto mid = std::next(begin, size / 2);
+	auto left  = merge_sort_threadpool_sort(tps, begin, mid, op);
+	auto right = merge_sort_threadpool_sort(tps, mid, end, op);
+
+	JobHandle* jh = new JobHandle{ };
+
+	tps.push(MergeSortWork<I, O>{ begin, mid, end, op, left, right, jh });
+	return jh;
+}
+
+void thread_work(ThreadPoolSchedular& tps) {
+	while(true) {
+		auto [cont, work] = tps.pop();
+		if (cont) work();
+		else return;
+	}
+}
+
+template <typename I, typename O = std::less<typename I::value_type>,
+          typename = std::enable_if_t<std::is_base_of<std::forward_iterator_tag, typename std::iterator_traits<I>::iterator_category>::value>>
+void merge_sort(I begin, I end, unsigned nbthreads, O op = {  }) {
+	// Start up threads
+	/// @todo add a way to pass in threads that have alread been started
+	ThreadPoolSchedular tps{  };
+	while(nbthreads --> 0) std::thread{ thread_work, std::ref(tps) }.detach();
+
+	auto master_handle = merge_sort_threadpool_sort(tps, begin, end, op);
+	while (!master_handle->done);
+	tps.end();
+	return;
+}
+}
+
 
 auto create_array_to_sort() {
 	std::vector<NoCopy> data;
@@ -158,24 +258,35 @@ auto create_array_to_sort() {
 int main() {
 {
 	auto sort_data = create_array_to_sort();
-	auto timeStart = hrc::now();
+	auto timeStart = clk::now();
+	parallel_threadpool::merge_sort(sort_data.begin(), sort_data.end(), 8);
+	auto timeEnd = clk::now();
+	std::chrono::duration<double> elapse{ timeEnd - timeStart };
+	float time = elapse.count();
+	if (std::is_sorted(sort_data.begin(), sort_data.end())) {
+		std::cout << "Threadpool took " << time << std::endl;
+	}
+}
+{
+	auto sort_data = create_array_to_sort();
+	auto timeStart = clk::now();
 	parallel_static::merge_sort(sort_data.begin(), sort_data.end(), 8);
-	auto timeEnd = hrc::now();
+	auto timeEnd = clk::now();
 	std::chrono::duration<double> elapse{ timeEnd - timeStart };
 	float time = elapse.count();
 	if (std::is_sorted(sort_data.begin(), sort_data.end()))
-		std::cout << "Correct, took " << time << std::endl;
+		std::cout << "Parallel   took " << time << std::endl;
 }
 
 {
 	auto sort_data = create_array_to_sort();
-	auto timeStart = hrc::now();
+	auto timeStart = clk::now();
 	serial::merge_sort(sort_data.begin(), sort_data.end());
-	auto timeEnd = hrc::now();
+	auto timeEnd = clk::now();
 	std::chrono::duration<double> elapse{ timeEnd - timeStart };
 	float time = elapse.count();
 	if (std::is_sorted(sort_data.begin(), sort_data.end()))
-		std::cout << "Correct, took " << time << std::endl;
+		std::cout << "Serial     took " << time << std::endl;
 }
 
 }
