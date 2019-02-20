@@ -195,7 +195,7 @@ public:
 		while (!mLeft->done or !mRight->done); // wait until the parent two nodes are sorted
 		auto merged = ::detail::merge_sort_merge(mBegin, mMid, mEnd, mOp);
 		std::move(merged.begin(), merged.end(), mBegin);
-		print(mBegin, mEnd);
+		// print(mBegin, mEnd);
 		mHandle->done = true;
 	}
 };
@@ -236,12 +236,14 @@ JobHandle* merge_sort_threadpool_sort(ThreadPoolSchedular& tps, I begin, I end, 
 	return std::get<2>(jobs.front());
 }
 
-void thread_work(ThreadPoolSchedular& tps) {
+void thread_work(ThreadPoolSchedular& tps, std::atomic_uint8_t& num) {
+	num.fetch_add(1);
 	while(true) {
 		auto [cont, work] = tps.pop();
 		if (cont) work();
-		else return;
+		else break;
 	}
+	num.fetch_add(-1);
 }
 
 template <typename I, typename O = std::less<typename I::value_type>,
@@ -250,28 +252,27 @@ void merge_sort(I begin, I end, unsigned nbthreads, O op = {  }) {
 	// Start up threads
 	/// @todo add a way to pass in threads that have alread been started
 	ThreadPoolSchedular tps{  };
-	while(nbthreads --> 0) std::thread{ thread_work, std::ref(tps) }.detach();
+	std::atomic_uint8_t numThreads{ 0 };
+	while(nbthreads --> 0) std::thread{ thread_work, std::ref(tps), std::ref(numThreads) }.detach();
 
 	auto master_handle = merge_sort_threadpool_sort(tps, begin, end, op);
 	while (!master_handle->done);
 	tps.end();
+	while (numThreads != 0);
 	return;
 }
 }
 
 
-auto create_array_to_sort(int MAX = 17) {
+auto create_array_to_sort(int MAX = 100'007) {
 	std::vector<NoCopy> data;
 
 	// I stole code from here: https://stackoverflow.com/questions/19665818
 	// I will watch that video later to figure out what this exactally does
 	std::random_device rd;
 	std::mt19937 mt(rd());
-	// std::uniform_real_distribution<float> dist(1.0, 100'000.0);
-	std::uniform_real_distribution<float> dist(1.0, 15.0);
+	std::uniform_real_distribution<float> dist(1.0, MAX);
 
-	// constexpr size_t MAX = 100'000;
-	// constexpr size_t MAX = 5;
 	for (int i = 0; i < MAX; ++i) {
 		data.push_back(NoCopy{ (int)dist(mt)} );
 	}
@@ -282,12 +283,12 @@ auto create_array_to_sort(int MAX = 17) {
 int main() {
 	// for (int i = 1; i < 50; ++i)
 {
-	auto sort_data = create_array_to_sort(45);
-	print(sort_data.begin(), sort_data.end());
+	auto sort_data = create_array_to_sort();
+	// print(sort_data.begin(), sort_data.end());
 	auto timeStart = clk::now();
-	parallel_threadpool::merge_sort(sort_data.begin(), sort_data.end(), 8);
+	parallel_threadpool::merge_sort(sort_data.begin(), sort_data.end(), 4);
 	auto timeEnd = clk::now();
-	print(sort_data.begin(), sort_data.end());
+	// print(sort_data.begin(), sort_data.end());
 	std::chrono::duration<double> elapse{ timeEnd - timeStart };
 	float time = elapse.count();
 	if (std::is_sorted(sort_data.begin(), sort_data.end())) {

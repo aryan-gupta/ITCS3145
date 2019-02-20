@@ -30,7 +30,7 @@ class TPS_func_wrapper : public TPS_func_wrapper_base {
 	T mFunc;
 
 public:
-	TPS_func_wrapper(T func) : mFunc{ std::move(func) } {  }
+	TPS_func_wrapper(T&& func) : mFunc{ std::forward<T>(func) } {  }
 
 	virtual ~TPS_func_wrapper() = default;
 
@@ -98,8 +98,8 @@ public:
 	}
 
 	template <typename T>
-	void push(T func) {
-		func_t wrapper = new derived_t<T>{ std::move(func) };
+	void push(T&& func) {
+		func_t wrapper = new derived_t<T>{ std::forward<T>(func) };
 		{
 			lock_t lk{ mLock };
 			mQ.push(wrapper);
