@@ -97,6 +97,17 @@ public:
 		return { true, func };
 	}
 
+	std::pair<bool, callable_t> try_pop() {
+		func_t func = nullptr;
+		{
+			lock_t lk{ mLock };
+			if (mQ.empty() or mKill) return { false, nullptr };
+			func = mQ.front();
+			mQ.pop();
+		}
+		return { true, func };
+	}
+
 	template <typename T>
 	void push(T&& func) {
 		func_t wrapper = new derived_t<T>{ std::forward<T>(func) };

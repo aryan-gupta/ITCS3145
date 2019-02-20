@@ -256,14 +256,18 @@ void merge_sort(I begin, I end, unsigned nbthreads, O op = {  }) {
 	while(nbthreads --> 0) std::thread{ thread_work, std::ref(tps), std::ref(numThreads) }.detach();
 
 	auto master_handle = merge_sort_threadpool_sort(tps, begin, end, op);
-	while (!master_handle->done);
+
+	while (!master_handle->done) {
+		auto [cont, work] = tps.try_pop();
+		if (cont) work();
+	}
 	tps.end();
 	while (numThreads != 0);
 	return;
 }
 }
 
-
+// attribute((no_instrument_function))
 auto create_array_to_sort(int MAX = 100'007) {
 	std::vector<NoCopy> data;
 
