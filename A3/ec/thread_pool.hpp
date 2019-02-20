@@ -30,7 +30,7 @@ class TPS_func_wrapper : public TPS_func_wrapper_base {
 	T mFunc;
 
 public:
-	TPS_func_wrapper(T func) : mFunc{ func } {  }
+	TPS_func_wrapper(T func) : mFunc{ std::move(func) } {  }
 
 	virtual ~TPS_func_wrapper() = default;
 
@@ -89,7 +89,7 @@ public:
 		{
 			lock_t lk{ mLock };
 			/// if its empty wait for more jobs or stop waiting if we eant to kill threads
-			if (mQ.empty()) mSignal.wait(lk, [this](){ return !mQ.empty() or mKill; });
+			if (mQ.empty() and !mKill) mSignal.wait(lk, [this](){ return !mQ.empty() or mKill; });
 			if (mKill) return { false, nullptr };
 			func = mQ.front();
 			mQ.pop();
@@ -99,7 +99,7 @@ public:
 
 	template <typename T>
 	void push(T func) {
-		func_t wrapper = new derived_t<T>{ func };
+		func_t wrapper = new derived_t<T>{ std::move(func) };
 		{
 			lock_t lk{ mLock };
 			mQ.push(wrapper);

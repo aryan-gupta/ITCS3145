@@ -7,6 +7,7 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include <cassert>
 
 #include "thread_pool.hpp"
 
@@ -15,6 +16,15 @@ static std::chrono::duration<double> gBusyTime{ 0 };
 static std::atomic_int gBusyLoops{ 0 };
 static std::mutex out_mux;
 
+template <typename I>
+void print(I begin, I end) {
+	std::unique_lock lk { out_mux };
+	for (; begin != end; ++begin) {
+		std::cout << begin->get() << " ";
+	}
+	std::cout << "\n";
+
+}
 
 
 // This class serves the purpose of testing that there are no useless
@@ -166,7 +176,7 @@ struct MergeSortWork {
 public:
 	MergeSortWork() = default;
 	// @todo Make this code so we reduce the amount of copies
-	MergeSortWork(MergeSortWork& ) = default;
+	MergeSortWork(MergeSortWork& ) = delete;
 	MergeSortWork(MergeSortWork&& ) = default;
 
 	MergeSortWork(I begin, I mid, I end, O op, JobHandle* left, JobHandle* right, JobHandle* mine)
@@ -185,33 +195,45 @@ public:
 		while (!mLeft->done or !mRight->done); // wait until the parent two nodes are sorted
 		auto merged = ::detail::merge_sort_merge(mBegin, mMid, mEnd, mOp);
 		std::move(merged.begin(), merged.end(), mBegin);
+		print(mBegin, mEnd);
 		mHandle->done = true;
 	}
 };
 
-template <typename I>
-void print(I begin, I end) {
-	std::unique_lock lk { out_mux };
-	for (; begin != end; ++begin) {
-		std::cout << begin->get() << " ";
-	}
-	std::cout << "\n";
-
-}
-
 template <typename I, typename O>
 JobHandle* merge_sort_threadpool_sort(ThreadPoolSchedular& tps, I begin, I end, O op) {
-	auto size = std::distance(begin, end);
-	if (size <= 1) return new JobHandle{ true };
+	std::deque<std::tuple<I, I, JobHandle*>> jobs{  };
+	JobHandle* alwaysTrue = new JobHandle{ true };
 
-	auto mid = std::next(begin, size / 2);
-	auto left  = merge_sort_threadpool_sort(tps, begin, mid, op);
-	auto right = merge_sort_threadpool_sort(tps, mid, end, op);
+	for (I it{ begin }; it != end; ) {
+		I s = it++;
+		I m = it++;
+		if (m == end) {
+			jobs.emplace_back(s, m, alwaysTrue);
+			break;
+		}
+		I e = it;
 
-	JobHandle* jh = new JobHandle{ };
+		JobHandle* handle = new JobHandle{ false };
+		tps.push(MergeSortWork<I, O>{ s, m, e, op, alwaysTrue, alwaysTrue, handle });
+		jobs.emplace_back(s, e, handle);
+	}
 
-	tps.push(MergeSortWork<I, O>{ begin, mid, end, op, left, right, jh });
-	return jh;
+	JobHandle* handle;
+	while (jobs.size() > 1) {
+		auto [s, m1, left] = jobs.front(); jobs.pop_front();
+		auto [m2, e, right] = jobs.front();
+
+		if (m1 == m2) {
+			handle = new JobHandle{ false };
+			tps.push(MergeSortWork<I, O>{ s, m1, e, op, left, right, handle });
+			jobs.emplace_back(s, e, handle);
+			jobs.pop_front();
+		} else {
+			jobs.emplace_back(s, m1, left);
+		}
+	}
+	return std::get<2>(jobs.front());
 }
 
 void thread_work(ThreadPoolSchedular& tps) {
@@ -238,16 +260,18 @@ void merge_sort(I begin, I end, unsigned nbthreads, O op = {  }) {
 }
 
 
-auto create_array_to_sort() {
+auto create_array_to_sort(int MAX = 17) {
 	std::vector<NoCopy> data;
 
 	// I stole code from here: https://stackoverflow.com/questions/19665818
 	// I will watch that video later to figure out what this exactally does
 	std::random_device rd;
 	std::mt19937 mt(rd());
-	std::uniform_real_distribution<float> dist(1.0, 100'000.0);
+	// std::uniform_real_distribution<float> dist(1.0, 100'000.0);
+	std::uniform_real_distribution<float> dist(1.0, 15.0);
 
-	constexpr size_t MAX = 100'000;
+	// constexpr size_t MAX = 100'000;
+	// constexpr size_t MAX = 5;
 	for (int i = 0; i < MAX; ++i) {
 		data.push_back(NoCopy{ (int)dist(mt)} );
 	}
@@ -256,22 +280,28 @@ auto create_array_to_sort() {
 }
 
 int main() {
+	// for (int i = 1; i < 50; ++i)
 {
-	auto sort_data = create_array_to_sort();
+	auto sort_data = create_array_to_sort(45);
+	print(sort_data.begin(), sort_data.end());
 	auto timeStart = clk::now();
 	parallel_threadpool::merge_sort(sort_data.begin(), sort_data.end(), 8);
 	auto timeEnd = clk::now();
+	print(sort_data.begin(), sort_data.end());
 	std::chrono::duration<double> elapse{ timeEnd - timeStart };
 	float time = elapse.count();
 	if (std::is_sorted(sort_data.begin(), sort_data.end())) {
+		std::unique_lock{ out_mux };
 		std::cout << "Threadpool took " << time << std::endl;
 	}
 }
 {
 	auto sort_data = create_array_to_sort();
+//	print(sort_data.begin(), sort_data.end());
 	auto timeStart = clk::now();
 	parallel_static::merge_sort(sort_data.begin(), sort_data.end(), 8);
 	auto timeEnd = clk::now();
+//	print(sort_data.begin(), sort_data.end());
 	std::chrono::duration<double> elapse{ timeEnd - timeStart };
 	float time = elapse.count();
 	if (std::is_sorted(sort_data.begin(), sort_data.end()))
@@ -280,9 +310,11 @@ int main() {
 
 {
 	auto sort_data = create_array_to_sort();
+//	print(sort_data.begin(), sort_data.end());
 	auto timeStart = clk::now();
 	serial::merge_sort(sort_data.begin(), sort_data.end());
 	auto timeEnd = clk::now();
+//	print(sort_data.begin(), sort_data.end());
 	std::chrono::duration<double> elapse{ timeEnd - timeStart };
 	float time = elapse.count();
 	if (std::is_sorted(sort_data.begin(), sort_data.end()))
