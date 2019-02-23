@@ -31,17 +31,17 @@ class lockfree_queue {
 public:
 
 	/// The algo goes: load tail node, if this node is nullptr then we have an empty queue
-	/// empty queue:
 	/// Set the tail node to the new node atomically if the queue is still empty. Here, no
 	/// Consumer can see this node beacuse the head node is still null. Any producer trying to
-	/// add another element will see Tail node @todo account for this. We know that if the tail
-	/// node was nullptr the head node must be too, so update the head node with the new value.
+	/// add another element will see Tail node as the new node, but the head node will still be null.
+	/// However this wont matter, becase that thread will not be touching head node. We know that
+	/// if the tail node was nullptr the head node must be too, so update the head node with the new value.
+	/// We dont need CAS here so I will remove it later. Im just keeping it for sainity checks @todo
 	/// the new element is now published. If the queue is not empty. then take ownership of the tail
 	/// node by setting the tail next pointer to next value. If we cant do this then another thread
 	/// is trying to push a value so we will repeat this loop. If we can get ownership of the next
-	/// pointer then publish the tail pointer with the new added node.
-
-	/// There is a dummy head node so tailNext will always be valid.
+	/// pointer then publish the tail pointer with the new added node. The next pointer of the tail
+	/// acts as a lock/signal that tells the other threads an element is being pushed.
 	void push(const T& element) {
 		node_ptr_t next = new node_t{ nullptr, element };
 
@@ -66,6 +66,17 @@ public:
 		}
 	}
 
+
+	/// The algo goes: Create a dummy node for future use. We may need it, we may not. If the head is null
+	/// that means we have a empty queue, spin on this loop until we get more work. If the tail equals the
+	/// head that means we only have one element in the queue, therefore we must take special precautions
+	/// first we try to take ownership of the tail node by setting the tail's next pointer to a dummy node
+	/// if we cant get ownership (another thread is updating, etc...) we loop. Once we have ownership, We
+	/// first change head. This will signal other consumers that the queue is now empty. No producer can
+	/// update this because of our ownership of the tail node. No other consumer can steal that node because
+	/// They wont be able to get ownership of tail. Once we are able to set the head node to null, do the same
+	/// to the tail node. Now that the tail node is null, producers can push more elements into this queue
+	/// if the queue has alot of elements then just move the head pointer forward and consume one.
 	T pop() {
 		node_ptr_t dummy = new node_t{ nullptr, T{ } };
 		node_ptr_t nullNode = nullptr;
@@ -81,7 +92,6 @@ public:
 				if (tailNext == nullptr) { // Check if we can get ownership of tail next pointer
 					if (tail->next.compare_exchange_weak(tailNext, dummy)) {
 						// we now have ownership of tail node so no other thread can mess with it. update head node to reflect
-						node_ptr_t nullNode = nullptr;
 						if (mHead.compare_exchange_weak(head, nullNode)) {
 							if (mTail.compare_exchange_weak(tail, nullNode)) {
 								T data = std::move(head->data);
