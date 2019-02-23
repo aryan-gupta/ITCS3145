@@ -7,7 +7,7 @@
 
 #include <atomic>
 #include <memory>
-
+#include <utility>
 
 namespace ari {
 
@@ -15,6 +15,11 @@ template <typename T>
 struct lfq_node {
 	using node_ptr_t = lfq_node*;
 	using value_type = T;
+
+	lfq_node() = default;
+
+	template <typename... Args>
+	lfq_node(node_ptr_t n, Args&&... args) : next{ n }, data{ std::forward<Args>(args)... } {  }
 
 	std::atomic<node_ptr_t> next;
 	value_type data;
@@ -24,17 +29,17 @@ template <typename T, typename A = std::allocator<T>>
 class lockfree_queue {
 	using node_t = lfq_node<T>;
 	using node_ptr_t = lfq_node<T>*;
-	using node_allocator_type = typename std::allocator_traits<A>::rebind_alloc<node_t>;
+	using node_allocator_type = typename std::allocator_traits<A>::template rebind_alloc<node_t>;
 	using node_allocator_traits_type = std::allocator_traits<node_allocator_type>;
 
 	std::atomic<node_ptr_t> mHead;
 	std::atomic<node_ptr_t> mTail;
 	node_allocator_type mAlloc;
 
-	template <typename... A>
-	node_ptr_t new_node(A&&... args) {
+	template <typename... Args>
+	node_ptr_t new_node(Args&&... args) {
 		auto ptr = node_allocator_traits_type::allocate(mAlloc, 1);
-		node_allocator_traits_type::construct(mAlloc, ptr, std::forward<A>(args)...);
+		node_allocator_traits_type::construct(mAlloc, ptr, nullptr, std::forward<Args>(args)...);
 		return ptr;
 	}
 
