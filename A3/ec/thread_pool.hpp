@@ -74,6 +74,8 @@ private:
 	using lock_t = std::unique_lock<std::mutex>;
 	template <typename A> using derived_t = detail::TPS_func_wrapper<A>;
 
+	std::vector<std::thread> mThreads;
+
 	// @todo make this lock-free? maybe
 	std::queue<func_t> mQ;
 	std::mutex mLock;
@@ -82,7 +84,37 @@ private:
 	std::atomic_bool mKill;
 
 public:
-	ThreadPoolSchedular() : mQ{  }, mLock{  }, mSignal{  }, mKill{ false } {}
+	ThreadPoolSchedular() = delete;
+
+	ThreadPoolSchedular(int nbthreads) : mQ{  }, mLock{  }, mSignal{  }, mKill{ false } {
+		while(nbthreads --> 0) {
+			mThreads.emplace_back(thread_loop, std::ref(*this));
+		}
+	}
+
+	static void thread_loop(ThreadPoolSchedular& tps) {
+		while(true) {
+			auto [cont, work] = tps.pop();
+			if (cont) work();
+			else break;
+		}
+	}
+
+	template <typename T>
+	static void master_loop(ThreadPoolSchedular& tps, T* handle) {
+		while (!handle->done) {
+			auto [cont, work] = tps.try_pop();
+			if (cont) work();
+		}
+	}
+
+	~ThreadPoolSchedular() {
+		end();
+		for(auto& t : mThreads) {
+			if (t.joinable())
+				t.join();
+		}
+	}
 
 	std::pair<bool, callable_t> pop() {
 		func_t func = nullptr;
