@@ -164,7 +164,7 @@ struct JobHandle {
 };
 
 template <typename I, typename O>
-struct MergeSortWork {
+struct MergeSortMergeWork {
 	I mBegin;
 	I mMid;
 	I mEnd;
@@ -174,12 +174,12 @@ struct MergeSortWork {
 	JobHandle* mHandle;
 
 public:
-	MergeSortWork() = default;
+	MergeSortMergeWork() = default;
 	// @todo Make this code so we reduce the amount of copies
-	MergeSortWork(MergeSortWork& ) = delete;
-	MergeSortWork(MergeSortWork&& ) = default;
+	MergeSortMergeWork(MergeSortMergeWork& ) = delete;
+	MergeSortMergeWork(MergeSortMergeWork&& ) = default;
 
-	MergeSortWork(I begin, I mid, I end, O op, JobHandle* left, JobHandle* right, JobHandle* mine)
+	MergeSortMergeWork(I begin, I mid, I end, O op, JobHandle* left, JobHandle* right, JobHandle* mine)
 		: mBegin{ begin }
 		, mMid{ mid }
 		, mEnd{ end }
@@ -201,32 +201,55 @@ public:
 };
 
 template <typename I, typename O>
+struct MergeSortWork {
+	I mBegin;
+	I mEnd;
+	O mOp;
+	JobHandle* mHandle;
+
+public:
+	MergeSortWork() = default;
+	// @todo Make this code so we reduce the amount of copies
+	MergeSortWork(MergeSortWork& ) = delete;
+	MergeSortWork(MergeSortWork&& ) = default;
+
+	MergeSortWork(I begin, I end, O op, JobHandle* mine)
+		: mBegin{ begin }
+		, mEnd{ end }
+		, mOp{ op }
+		, mHandle{ mine }
+		{}
+
+	void operator() () {
+		::serial::merge_sort(mBegin, mEnd, mOp);
+		mHandle->done = true;
+	}
+};
+
+template <typename I, typename O>
 JobHandle* merge_sort_threadpool_sort(ThreadPoolSchedular& tps, I begin, I end, O op) {
 	std::deque<std::tuple<I, I, JobHandle*>> jobs{  };
-	JobHandle* alwaysTrue = new JobHandle{ true };
+	I it{ begin };
 
-	for (I it{ begin }; it != end; ) {
-		I s = it++;
-		I m = it++;
-		if (m == end) {
-			jobs.emplace_back(s, m, alwaysTrue);
-			break;
-		}
-		I e = it;
+	constexpr size_t gran = 10'000;
 
+	for (; it < end - gran; it += gran) {
 		JobHandle* handle = new JobHandle{ false };
-		tps.push(MergeSortWork<I, O>{ s, m, e, op, alwaysTrue, alwaysTrue, handle });
-		jobs.emplace_back(s, e, handle);
+		tps.push(MergeSortWork<I, O>{ it, it + gran, op, handle });
+		jobs.emplace_back(it, it + gran, handle);
 	}
 
-	JobHandle* handle;
+	JobHandle* handle = new JobHandle{ false };
+	tps.push(MergeSortWork<I, O>{ it, end, op, handle });
+	jobs.emplace_back(it, end, handle);
+
 	while (jobs.size() > 1) {
 		auto [s, m1, left] = jobs.front(); jobs.pop_front();
 		auto [m2, e, right] = jobs.front();
 
 		if (m1 == m2) {
 			handle = new JobHandle{ false };
-			tps.push(MergeSortWork<I, O>{ s, m1, e, op, left, right, handle });
+			tps.push(MergeSortMergeWork<I, O>{ s, m1, e, op, left, right, handle });
 			jobs.emplace_back(s, e, handle);
 			jobs.pop_front();
 		} else {
