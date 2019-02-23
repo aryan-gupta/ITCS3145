@@ -77,15 +77,20 @@ public:
 		while (true) {
 			node_ptr_t tail = mTail.load();
 			if (tail == nullptr) { // Then the queue is empty.
-				mTail.compare_exchange_weak(tail, next);
-				node_ptr_t head = nullptr;
-				mHead.compare_exchange_weak(head, next);
-				break;
+				if (mTail.compare_exchange_weak(tail, next)) {
+					node_ptr_t head = nullptr;
+					if (!mHead.compare_exchange_strong(head, next)) {
+						throw 1;
+					}
+					break;
+				}
 			} else {
 				node_ptr_t tailNext = tail->next.load();
 				if (tailNext == nullptr) { // Check if we can get ownership of tail next pointer
 					if (tail->next.compare_exchange_weak(tailNext, next)) {
-						mTail.compare_exchange_weak(tail, next);
+						if (!mTail.compare_exchange_strong(tail, next)) {
+							throw 2;
+						}
 						break;
 					}
 				} else { // if we cant get ownership then repeat trying to get ownership
@@ -132,7 +137,7 @@ public:
 				}
 			} else {
 				node_ptr_t nextHead = head->next.load();
-				if (mHead.compare_exchange_strong(head, nextHead)) {
+				if (mHead.compare_exchange_weak(head, nextHead)) {
 					T data = std::move(head->data);
 					delete_node(head);
 					delete_node(dummy);
