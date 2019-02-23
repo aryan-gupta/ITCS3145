@@ -1,6 +1,8 @@
 /// I just want to take a moment to congratulate myself because this code not only compiled on the second
 /// try but it runs without bugs (so far). This seems too good to be true.
 
+#pragma once
+
 #include <atomic>
 #include <memory>
 #include <utility>
