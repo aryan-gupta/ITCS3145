@@ -20,7 +20,7 @@ template <typename I>
 void print(I begin, I end) {
 	std::unique_lock lk { out_mux };
 	for (; begin != end; ++begin) {
-		std::cout << begin->get() << " ";
+		std::cout << (int)begin->get() << " ";
 	}
 	std::cout << "\n";
 
@@ -30,12 +30,13 @@ void print(I begin, I end) {
 // This class serves the purpose of testing that there are no useless
 // copies of data. The copy functions are deleted meaning there when an
 // object is constructed, it cannot be copied, only moved
+template <typename T>
 class NoCopy {
-	int data;
+	T data;
 
 public:
 	NoCopy() = default;
-	NoCopy(int d) : data{ d } {  };
+	NoCopy(T d) : data{ d } {  };
 
 	NoCopy(NoCopy&) = delete;
 	NoCopy& operator= (NoCopy&) = delete;
@@ -44,7 +45,7 @@ public:
 	NoCopy(NoCopy&&) = default;
 	NoCopy& operator= (NoCopy&&) = default;
 
-	int get() const {
+	T get() const {
 		return data;
 	}
 
