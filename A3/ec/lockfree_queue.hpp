@@ -48,6 +48,60 @@ class lockfree_queue {
 		node_allocator_traits_type::deallocate(mAlloc, ptr, 1);
 	}
 
+	bool push(node_ptr_t next) {
+		node_ptr_t tail = mTail.load();
+		if (tail == nullptr) { // Then the queue is empty.
+			if (mTail.compare_exchange_weak(tail, next)) {
+				node_ptr_t head = nullptr;
+				if (!mHead.compare_exchange_strong(head, next)) {
+					throw 1;
+				}
+				return true;
+			}
+			return false;
+		} else {
+			node_ptr_t tailNext = tail->next.load();
+			if (tailNext == nullptr) { // Check if we can get ownership of tail next pointer
+				if (tail->next.compare_exchange_weak(tailNext, next)) {
+					if (!mTail.compare_exchange_strong(tail, next)) {
+						throw 2;
+					}
+					return true;
+				}
+				return false;
+			} else { // if we cant get ownership then repeat trying to get ownership
+				return false;
+			}
+		}
+	}
+
+	node_ptr_t pop(node_ptr_t dummy) {
+		node_ptr_t head = mHead.load();
+		node_ptr_t tail = mTail.load();
+		if (head == nullptr) { // empty queue, loop
+			return nullptr;
+		} else if (tail == head) { // queue has one element
+			// try to take ownership of tail node
+			node_ptr_t tailNext = tail->next.load();
+			if (tailNext == nullptr) { // Check if we can get ownership of tail next pointer
+				if (tail->next.compare_exchange_weak(tailNext, dummy)) {
+					// we now have ownership of tail node so no other thread can mess with it. update head node to reflect
+					if (mHead.compare_exchange_strong(head, nullptr)) {
+						if (mTail.compare_exchange_strong(tail, nullptr)) {
+							return head;
+						}
+					}
+				}
+			}
+			return nullptr;
+		} else {
+			node_ptr_t nextHead = head->next.load();
+			if (mHead.compare_exchange_weak(head, nextHead))
+				return head;
+			return nullptr;
+		}
+	}
+
 public:
 	using value_type = T;
 	using reference = T&;
@@ -78,31 +132,7 @@ public:
 	/// acts as a lock/signal that tells the other threads an element is being pushed.
 	void push(const T& element) {
 		node_ptr_t next = new_node(element);
-
-		while (true) {
-			node_ptr_t tail = mTail.load();
-			if (tail == nullptr) { // Then the queue is empty.
-				if (mTail.compare_exchange_weak(tail, next)) {
-					node_ptr_t head = nullptr;
-					if (!mHead.compare_exchange_strong(head, next)) {
-						throw 1;
-					}
-					break;
-				}
-			} else {
-				node_ptr_t tailNext = tail->next.load();
-				if (tailNext == nullptr) { // Check if we can get ownership of tail next pointer
-					if (tail->next.compare_exchange_weak(tailNext, next)) {
-						if (!mTail.compare_exchange_strong(tail, next)) {
-							throw 2;
-						}
-						break;
-					}
-				} else { // if we cant get ownership then repeat trying to get ownership
-					continue;
-				}
-			}
-		}
+		while (!push(next));
 	}
 
 
@@ -118,39 +148,33 @@ public:
 	/// if the queue has alot of elements then just move the head pointer forward and consume one.
 	T pop() {
 		node_ptr_t dummy = new_node(T{ });
-
-		while (true) {
-			node_ptr_t head = mHead.load();
-			node_ptr_t tail = mTail.load();
-			if (head == nullptr) { // empty queue, loop
-				continue;
-			} else if (tail == head) { // queue has one element
-				// try to take ownership of tail node
-				node_ptr_t tailNext = tail->next.load();
-				if (tailNext == nullptr) { // Check if we can get ownership of tail next pointer
-					if (tail->next.compare_exchange_weak(tailNext, dummy)) {
-						// we now have ownership of tail node so no other thread can mess with it. update head node to reflect
-						if (mHead.compare_exchange_strong(head, nullptr)) {
-							if (mTail.compare_exchange_strong(tail, nullptr)) {
-								T data = std::move(head->data);
-								delete_node(head);
-								delete_node(dummy);
-								return data;
-							}
-						}
-					}
-				}
-			} else {
-				node_ptr_t nextHead = head->next.load();
-				if (mHead.compare_exchange_weak(head, nextHead)) {
-					T data = std::move(head->data);
-					delete_node(head);
-					delete_node(dummy);
-					return data;
-				}
-			}
+		node_ptr_t node = nullptr;
+		while (node == nullptr) {
+			node = pop(dummy);
 		}
 		delete_node(dummy);
+		T data = std::move(node->data);
+		delete_node(node);
+		return data;
+	}
+
+	bool try_push(const T& element) {
+		node_ptr_t next = new_node(element);
+		return push(next);
+	}
+
+	std::pair<bool, T> try_pop() {
+		node_ptr_t dummy = new_node(T{ });
+		node_ptr_t node = pop(dummy);
+		delete_node(dummy);
+
+		if (node == nullptr) {
+			return { false, T{ } };
+		} else {
+			T data = std::move(node->data);
+			delete_node(node);
+			return { true, data };
+		}
 	}
 
 };
