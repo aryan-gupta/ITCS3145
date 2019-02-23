@@ -11,3 +11,4 @@ for line in src:
 		current += 1
 	else:
 		print("Well, you f'ed up")
+		break

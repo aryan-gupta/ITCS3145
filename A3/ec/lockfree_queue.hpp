@@ -193,6 +193,7 @@ public:
 		return success;
 	}
 
+
 	/// Attempts to pop an element in a single pass
 	/// @note this is non-blocking
 	std::pair<bool, T> try_pop() {
@@ -209,9 +210,31 @@ public:
 		}
 	}
 
+	/// Trys to pop until the op returns false
+	template <typename O>
+	std::pair<bool, T> try_pop(O op) {
+		node_ptr_t dummy = new_node(T{ });
+		node_ptr_t node = nullptr;
+
+		/// keep trying to pop until we are successfull or op returns false
+		while (node == nullptr and op()) {
+			node = pop(dummy);
+		}
+
+		delete_node(dummy);
+		if (node == nullptr) {
+			return { false, T{ } };
+		} else {
+			T data = std::move(node->data);
+			delete_node(node);
+			return { true, data };
+		}
+	}
+
+
 	/// In place creates the node using the arguments then pushes it into the queue
 	template <typename... Args>
-	void emplace(Args... args) {
+	void emplace(Args&&... args) {
 		node_ptr_t next = new_node(std::forward<Args>(args)...);
 		while (!push(next));
 	}
