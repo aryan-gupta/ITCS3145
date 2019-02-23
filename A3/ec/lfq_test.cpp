@@ -8,44 +8,39 @@
 
 
 #include "lockfree_queue.hpp"
+#include "thread_pool.hpp"
+// static ari::lockfree_queue<caller> gQ{  };
 
-static ari::lockfree_queue<int> gQ{  };
+
 static std::mutex out_lock{  };
+struct caller {
+	int id;
 
-void consumer_loop() {
-	while (true) {
-		int i = gQ.pop();
-		std::lock_guard lk{ out_lock };
-		std::cout << std::setfill('0') << std::setw(5);
-		std::cout << i << std::endl;
+	void operator() () {
+		{
+			std::lock_guard lk{ out_lock };
+			std::cout << std::setfill('0') << std::setw(5);
+			std::cout << id << std::endl;
+		}
+		std::this_thread::sleep_for(std::chrono::seconds{ 1 });
 	}
-}
+};
 
-static std::atomic_uint32_t gNum;
-
-void producer_loop() {
-	while (gNum < 10000) {
+static std::atomic_uint32_t gNum{  };
+void producer_loop(ThreadPoolSchedular& tps) {
+	while (gNum < 10) {
 		int num = gNum.fetch_add(1);
-		gQ.push(num);
+		tps.push(caller{ num });
 	}
+
 }
 
 
 int main() {
-	std::vector<std::thread> pool{  };
-	int max{  };
+	ThreadPoolSchedular tps{ 4 };
 
-	max = 100;
-	while (max --> 0) {
-		pool.emplace_back(consumer_loop);
-	}
+	tps.push([&tps](){ producer_loop(tps); });
+	tps.push([&tps](){ producer_loop(tps); });
 
-	max = 100;
-	while (max --> 0) {
-		pool.emplace_back(producer_loop);
-	}
-
-	for (auto& t : pool) {
-		t.join();
-	}
+	while (1);
 }
