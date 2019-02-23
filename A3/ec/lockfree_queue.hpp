@@ -177,6 +177,11 @@ public:
 		}
 	}
 
+	template <typename... Args>
+	void emplace(Args... args) {
+		node_ptr_t next = new_node(std::forward<Args>(args)...);
+		while (!push(next));
+	}
 };
 
 } // end namespace ari
