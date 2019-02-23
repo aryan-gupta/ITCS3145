@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <atomic>
 
+#include "lockfree_queue.hpp"
 
 // Internal implementation for the ThreadPoolSchedular. I wanted to make the code as modular as possible
 // so I took some inspiration from std::any. The gist of this code is that there is a base class with a v-table
@@ -83,17 +84,13 @@ private:
 
 	std::vector<std::thread> mThreads;
 
-	// @todo make this lock-free? maybe
-	std::queue<func_t> mQ;
-	std::mutex mLock;
-	std::condition_variable mSignal;
-
+	ari::lockfree_queue<func_t> mQ;
 	std::atomic_bool mKill;
 
 public:
 	ThreadPoolSchedular() = delete;
 
-	ThreadPoolSchedular(int nbthreads) : mQ{  }, mLock{  }, mSignal{  }, mKill{ false } {
+	ThreadPoolSchedular(int nbthreads) : mQ{  }, mKill{ false } {
 		while(nbthreads --> 0) {
 			mThreads.emplace_back(thread_loop, std::ref(*this));
 		}
@@ -124,47 +121,23 @@ public:
 	}
 
 	std::pair<bool, callable_t> pop() {
-		func_t func = nullptr;
-		{
-			lock_t lk{ mLock };
-			/// if its empty wait for more jobs or stop waiting if we eant to kill threads
-			if (mQ.empty() and !mKill) mSignal.wait(lk, [this](){ return !mQ.empty() or mKill; });
-			if (mKill) return { false, nullptr };
-			func = mQ.front();
-			mQ.pop();
-		}
-		return { true, func };
+		auto [success, func] = mQ.try_pop( [this](){ return !mKill.load(); } );
+		return { success, callable_t{ func } };
 	}
 
 	std::pair<bool, callable_t> try_pop() {
-		func_t func = nullptr;
-		{
-			lock_t lk{ mLock };
-			if (mQ.empty() or mKill) return { false, nullptr };
-			func = mQ.front();
-			mQ.pop();
-		}
-		return { true, func };
+		auto [success, func] = mQ.try_pop();
+		return { success, callable_t{ func } };
 	}
 
 	template <typename T>
 	void push(T&& func) {
 		func_t wrapper = new derived_t<T>{ std::forward<T>(func) };
-		{
-			lock_t lk{ mLock };
-			mQ.push(wrapper);
-		}
-		mSignal.notify_one();
-	}
-
-	bool empty() {
-		lock_t lk{ mLock };
-		return mQ.empty();
+		mQ.push(wrapper);
 	}
 
 	void end() {
 		mKill = true;
-		mSignal.notify_all();
 	}
 
 };
