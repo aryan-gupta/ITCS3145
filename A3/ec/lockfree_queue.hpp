@@ -20,15 +20,44 @@ struct lfq_node {
 	value_type data;
 };
 
-template <typename T>
+template <typename T, typename A = std::allocator<T>>
 class lockfree_queue {
 	using node_t = lfq_node<T>;
 	using node_ptr_t = lfq_node<T>*;
+	using node_allocator_type = typename std::allocator_traits<A>::rebind_alloc<node_t>;
+	using node_allocator_traits_type = std::allocator_traits<node_allocator_type>;
 
 	std::atomic<node_ptr_t> mHead;
 	std::atomic<node_ptr_t> mTail;
+	node_allocator_type mAlloc;
+
+	template <typename... A>
+	node_ptr_t new_node(A&&... args) {
+		auto ptr = node_allocator_traits_type::allocate(mAlloc, 1);
+		node_allocator_traits_type::construct(mAlloc, ptr, std::forward<A>(args)...);
+		return ptr;
+	}
+
+	void delete_node(node_ptr_t ptr) {
+		node_allocator_traits_type::destroy(mAlloc, ptr);
+		node_allocator_traits_type::deallocate(mAlloc, ptr, 1);
+	}
 
 public:
+	using value_type = T;
+	using reference = T&;
+	using const_reference = const T&;
+	using allocator_type = A;
+	using size_type = std::size_t;
+	using difference_type = std::ptrdiff_t;
+
+	lockfree_queue() = default;
+
+	~lockfree_queue() {
+		while (mHead.load() != nullptr) {
+			pop();
+		}
+	}
 
 	/// The algo goes: load tail node, if this node is nullptr then we have an empty queue
 	/// Set the tail node to the new node atomically if the queue is still empty. Here, no
@@ -43,7 +72,7 @@ public:
 	/// pointer then publish the tail pointer with the new added node. The next pointer of the tail
 	/// acts as a lock/signal that tells the other threads an element is being pushed.
 	void push(const T& element) {
-		node_ptr_t next = new node_t{ nullptr, element };
+		node_ptr_t next = new_node(element);
 
 		while (true) {
 			node_ptr_t tail = mTail.load();
@@ -78,8 +107,7 @@ public:
 	/// to the tail node. Now that the tail node is null, producers can push more elements into this queue
 	/// if the queue has alot of elements then just move the head pointer forward and consume one.
 	T pop() {
-		node_ptr_t dummy = new node_t{ nullptr, T{ } };
-		node_ptr_t nullNode = nullptr;
+		node_ptr_t dummy = new_node(T{ });
 
 		while (true) {
 			node_ptr_t head = mHead.load();
@@ -92,10 +120,11 @@ public:
 				if (tailNext == nullptr) { // Check if we can get ownership of tail next pointer
 					if (tail->next.compare_exchange_weak(tailNext, dummy)) {
 						// we now have ownership of tail node so no other thread can mess with it. update head node to reflect
-						if (mHead.compare_exchange_weak(head, nullNode)) {
-							if (mTail.compare_exchange_weak(tail, nullNode)) {
+						if (mHead.compare_exchange_strong(head, nullptr)) {
+							if (mTail.compare_exchange_strong(tail, nullptr)) {
 								T data = std::move(head->data);
-								delete head;
+								delete_node(head);
+								delete_node(dummy);
 								return data;
 							}
 						}
@@ -105,11 +134,13 @@ public:
 				node_ptr_t nextHead = head->next.load();
 				if (mHead.compare_exchange_strong(head, nextHead)) {
 					T data = std::move(head->data);
-					delete head;
+					delete_node(head);
+					delete_node(dummy);
 					return data;
 				}
 			}
 		}
+		delete_node(dummy);
 	}
 
 };
