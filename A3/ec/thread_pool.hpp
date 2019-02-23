@@ -44,15 +44,22 @@ class TPS_callable {
 	TPS_func_wrapper_base* mFunc;
 
 public:
-	TPS_callable() = delete; // dont want to deal with nullptr
+	TPS_callable() = delete;
+	TPS_callable(const TPS_callable&) = delete;
+	TPS_callable(TPS_callable&& o) : mFunc{ o.mFunc } {
+		o.mFunc = nullptr;
+	}
+
 	TPS_callable(TPS_func_wrapper_base* func) : mFunc{ func } {  }
 
 	~TPS_callable() {
-		delete mFunc;
+		if (mFunc != nullptr)
+			delete mFunc;
 	}
 
 	void operator() () {
-		mFunc->operator()();
+		if (mFunc != nullptr)
+			mFunc->operator()();
 	}
 };
 
