@@ -43,6 +43,7 @@
 		"cstdarg": "cpp",
 		"deque": "cpp",
 		"functional": "cpp",
-		"list": "cpp"
+		"list": "cpp",
+		"iomanip": "cpp"
 	}
 }
