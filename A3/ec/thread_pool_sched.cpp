@@ -140,12 +140,10 @@ std::vector<std::tuple<func_t, int, int, int, float>> get_jobs(std::string_view 
 
 		int gran;
 		ss >> gran;
-		gran = 1000;
+		gran = n;
 
 		float ans;
 		ss >> ans;
-
-		// std::cout << tmp << " " << n << " " << intensity << " " << gran << " " << ans << std::endl;
 
 		ret_val.emplace_back(func, n, intensity, gran, ans);
 	}
