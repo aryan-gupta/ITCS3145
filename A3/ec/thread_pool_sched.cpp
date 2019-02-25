@@ -179,7 +179,7 @@ int main(int argc, char* argv[]) {
 		jobs.emplace_back(jh, answer);
 	}
 
-	std::cout << "[I] Waiting for jobs to finish..." << std::endl;
+	std::cout << "[I] Waiting for jobs to finish... Total Jobs posted: " << jobs.size() << std::endl;
 
 	bool done = false;
 	while (!done) {
@@ -191,7 +191,9 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	std::cout << "[I] Jobs finished. Total Jobs posted: " << jobs.size() << std::endl;
+	tps.end();
+
+	std::cout << "[I] Jobs finished." << std::endl;
 
 	int nbcorrect = 0;
 	for (auto [handle, correct] : jobs) {
