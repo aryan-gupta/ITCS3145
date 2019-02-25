@@ -58,7 +58,16 @@ public:
 	bool operator>= (const NoCopy& o) const { return data >= o.data; }
 	bool operator== (const NoCopy& o) const { return data == o.data; }
 	bool operator!= (const NoCopy& o) const { return data != o.data; }
+
+	template <typename U> friend std::ostream& operator<< (std::ostream&, const NoCopy<U>&);
 };
+
+template <typename T>
+std::ostream& operator<< (std::ostream& out, const NoCopy<T>& data) {
+	out << data;
+	return out;
+}
+
 
 namespace detail {
 // No need for SFINE here because it will only be called by merge_sort, meaning the types will be corect
@@ -142,11 +151,13 @@ void merge_sort(I begin, I end, unsigned nbt, O op = {  }) {
 	auto st = begin;
 	auto en = std::next(st, depth);
 
-	for (size_t i = 0; i < nbt; ++i) {
+	for (size_t i = 0; i < nbt - 1; ++i) {
 		thread_storage.emplace_back(serial::merge_sort<I, O>, st, en, op);
 		st = en;
 		en = std::next(st, depth);
 	}
+
+	thread_storage.emplace_back(serial::merge_sort<I, O>, st, end, op);
 
 	for (auto& t : thread_storage)
 		t.join();
@@ -271,8 +282,8 @@ void merge_sort(I begin, I end, ThreadPoolSchedular& tps, O op = {  }) {
 } // end namespace parallel_threadpool
 
 // attribute((no_instrument_function))
-auto create_array_to_sort(int MAX = 1'000'007) {
-	std::vector<NoCopy<char>> data;
+auto create_array_to_sort(int MAX = 107) {
+	std::vector<char> data;
 	data.reserve(MAX * 1.5);
 
 	// I stole code from here: https://stackoverflow.com/questions/19665818
@@ -282,7 +293,7 @@ auto create_array_to_sort(int MAX = 1'000'007) {
 	std::uniform_real_distribution<float> dist(1.0, 255);
 
 	for (int i = 0; i < MAX; ++i) {
-		data.push_back(NoCopy{ (char)dist(mt) } );
+		data.push_back((char)dist(mt) );
 		// data.push_back(NoCopy{ i } );
 	}
 
@@ -296,7 +307,11 @@ int main() {
 
 // Running ThreadPool Sort 1'000 times reastarting threads each time...
 // Threadpool took 303.268
-
+{
+	ThreadPoolSchedular tps{ 8 };
+	auto sort_data = create_array_to_sort();
+	parallel_threadpool::merge_sort(sort_data.begin(), sort_data.end(), tps);
+}
 {
 	std::cout << "Running ThreadPool Sort 1'000 times without restarting threads..." << std::endl;
 	std::chrono::duration<double> elapse{ 0 };

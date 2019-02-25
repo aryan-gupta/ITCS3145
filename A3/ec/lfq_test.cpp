@@ -9,7 +9,20 @@
 
 #include "lockfree_queue.hpp"
 #include "thread_pool.hpp"
-// static ari::lockfree_queue<caller> gQ{  };
+
+using func_t = float (*)(float, int);
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+float f1(float x, int intensity);
+float f2(float x, int intensity);
+float f3(float x, int intensity);
+float f4(float x, int intensity);
+
+#ifdef __cplusplus
+}
+#endif
 
 
 static std::mutex out_lock{  };
@@ -37,10 +50,9 @@ void producer_loop(ThreadPoolSchedular& tps) {
 
 
 int main() {
-	ThreadPoolSchedular tps{ 4 };
+	ThreadPoolSchedular tps{ 8 };
 
-	tps.push([&tps](){ producer_loop(tps); });
-	tps.push([&tps](){ producer_loop(tps); });
+	std::thread{ producer_loop, std::ref(tps) }.join();
 
 	while (1);
 }

@@ -27,6 +27,7 @@
 
 using hrc = std::chrono::high_resolution_clock;
 
+std::mutex out_lock{  };
 
 using func_t = float (*)(float, int);
 #ifdef __cplusplus
@@ -97,6 +98,11 @@ public:
 		float ban = (b - a) / (float)n;
 		float ans{};
 
+		{
+			// std::lock_guard { out_lock };
+			// std::cout << "Doing: " << start << "    " << end << std::endl;
+		}
+
 		for (int i = start; i < end; ++i) {
 			float x = a + ((float)i + 0.5) * ban;
 			ans += functionid(x, intensity);
@@ -130,7 +136,7 @@ void start_threads(ThreadPoolSchedular& sch, size_t num) {
 
 /// This function breaks the integration into jobs that the threads can compleate. Then posts the jobs in the schedular
 // returns the current number of jobs compleated and the number of total jobs it is enqued
-std::unique_ptr<JobHolder> submit_jobs(ThreadPoolSchedular& tps, func_t functionid, int a, int b, int n, int intensity, int depth) {
+JobHolder* submit_jobs(ThreadPoolSchedular& tps, func_t functionid, int a, int b, int n, int intensity, int depth) {
 	static int IDnum = 0;
 
 	JobHolder* jh = new JobHolder{  };
@@ -141,6 +147,9 @@ std::unique_ptr<JobHolder> submit_jobs(ThreadPoolSchedular& tps, func_t function
 
 
 	while (start + depth < n) {
+		{ std::lock_guard { out_lock };
+			std::cout << "Pushing: " << start << "  " << end << std::endl;
+		}
 		jh->left.fetch_add(1);
 		integrate_work iw{ functionid, a, b, n, start, end, intensity, jh };
 		tps.push(iw);
@@ -148,20 +157,23 @@ std::unique_ptr<JobHolder> submit_jobs(ThreadPoolSchedular& tps, func_t function
 		end += depth;
 	}
 
+	{ std::lock_guard { out_lock };
+		std::cout << "Pushing: " << start << "  " << end << std::endl;
+	}
+
 	jh->left.fetch_add(1);
 	integrate_work iw{ functionid, a, b, n, start, n, intensity, jh };
 	tps.push(iw);
 
-	return std::unique_ptr<JobHolder>{ jh };
+	return jh;
 }
 
 
-std::unique_ptr<JobHolder> start_new_integration(ThreadPoolSchedular& tps) {
+JobHolder* start_new_integration(ThreadPoolSchedular& tps) {
 	std::cout << "What function would you like to integrate?" << std::endl;
 	std::cout << ":: ";
 	int id;
 	std::cin >> id;
-	std::cout << id;
 
 	func_t func = nullptr;
 	switch (id) {
@@ -222,45 +234,37 @@ int main (int argc, char* argv[]) {
 
 	std::cout << "Please choose the number of threads to start..." << std::endl;
 	std::cout << ":: ";
-	unsigned nbthreads{  };
+	unsigned nbthreads{ 4 };
+	// std::cin >> nbthreads;
 
-	do {
-		int tmp;
-		std::cin >> tmp;
-		if (tmp > 0) {
-			nbthreads = tmp;
-		} else {
-			std::cout << "That is incorrect... Try again\n:: ";
-			std::cin.clear();
-			std::cin.ignore(SIZE_MAX);
-		}
-	} while (nbthreads == 0);
-
-	ThreadPoolSchedular tps{  };
-	start_threads(tps, nbthreads);
+	ThreadPoolSchedular tps{ (int)nbthreads };
 	std::cout << "Started " << nbthreads << " threads" << std::endl;
 
-	unsigned choice;
+	unsigned choice{ 2 };
 	do {
 		std::cout << "What would you like to do?\n";
 		std::cout << "0) Quit\n";
 		std::cout << "1) Check Job Status\n";
 		std::cout << "2) Start new integration\n";
-		std::cin >> choice;
+		// std::cout << ":: ";
+		// std::cin >> choice;
 		switch (choice) {
 			case 0: break;
 			case 1: print_jobs(jobs); break;
 			case 2: {
-				auto handle = start_new_integration(tps);
+				auto handle = submit_jobs(tps, f1, 0, 10, 1'000, 1, 100); //start_new_integration(tps);
+				std::lock_guard { out_lock };
 				std::cout << "Job ID: " << handle->id << std::endl;
-				jobs.push_back(std::move(handle));
+				while (!handle->done());
+				std::cout << handle->answer << std::endl;
+				while(1);
 			} break;
 		}
 	} while (choice != 0);
 
 	tps.end();
-	std::cout << "Waiting 5 seconds for detached threads to end..." << std::endl;
-	std::this_thread::sleep_for(std::chrono::seconds{ 5 });
+	// std::cout << "Waiting 5 seconds for detached threads to end..." << std::endl;
+	// std::this_thread::sleep_for(std::chrono::seconds{ 5 });
 
 	return 0;
 }

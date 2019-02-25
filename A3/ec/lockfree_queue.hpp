@@ -52,6 +52,7 @@ class lockfree_queue {
 	// Deletes a node and the internal data
 	// @param ptr The node to delete/deallocate
 	void delete_node(node_ptr_t ptr) {
+		// https://www.reddit.com/r/cpp_questions/comments/6avaey/difference_between_destruction_and_deallocation/
 		node_allocator_traits_type::destroy(mAlloc, ptr);
 		node_allocator_traits_type::deallocate(mAlloc, ptr, 1);
 	}
