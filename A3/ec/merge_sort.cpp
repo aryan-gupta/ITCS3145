@@ -1,5 +1,5 @@
-// This code is extra credit and I refuse to use pthread more then I need to. C++11 threads
-// are more fun and more type safe
+//  Just a word of warning, this code is very messy. One thing led to another and it just kept
+// getting messier.
 
 #include <vector>
 #include <random>
@@ -12,8 +12,6 @@
 #include "thread_pool.hpp"
 
 using clk = std::chrono::high_resolution_clock;
-static std::chrono::duration<double> gBusyTime{ 0 };
-static std::atomic_int gBusyLoops{ 0 };
 static std::mutex out_mux;
 
 
@@ -111,81 +109,16 @@ void merge_sort(I begin, I end, O op = {  }) {
 }
 
 
-/// Parallel static version of the code
-namespace parallel_static {
-
-// @todo add some parallelism to parallel_merge function
-
-template <typename I, typename O>
-void merge_sort_parallel_merge(I begin, I end, unsigned nbt, size_t depth, O op = {  }) {
-	while (nbt > 1) {
-		I first{ begin };
-		I mid { std::next(begin, depth) };
-		I last{ std::next(mid, depth) };
-		nbt /= 2;
-		for (int i = 0; i < nbt - 1; ++i) {
-			auto merged = ::detail::merge_sort_merge(first, mid, last, op);
-			std::move(merged.begin(), merged.end(), begin);
-			first = last;
-			mid = std::next(begin, depth);
-			last = std::next(mid, depth);
-		}
-
-		auto merged = ::detail::merge_sort_merge(first, mid, end, op);
-		std::move(merged.begin(), merged.end(), begin);
-
-		depth *= 2;
-	}
-}
-
-// if a number is a power of 2 then it will be in a format of 10000...
-// this will translate to (1000 & 0111) == 0
-bool is_pow_2(unsigned long num) {
-	return (num & (num - 1)) == 0;
-}
-
-template <typename I, typename O = std::less<typename I::value_type>,
-          typename = std::enable_if_t<std::is_base_of<std::forward_iterator_tag, typename std::iterator_traits<I>::iterator_category>::value>>
-void merge_sort(I begin, I end, unsigned nbt, O op = {  }) {
-	// we need to make sure that nbt is a power of 2
-	if (!is_pow_2(nbt))
-		return; // @todo throw here
-
-	std::vector<std::thread> thread_storage{  };
-
-	auto size = std::distance(begin, end);
-	size_t depth = size / nbt;
-
-	auto st = begin;
-	auto en = std::next(st, depth);
-
-	for (size_t i = 0; i < nbt - 1; ++i) {
-		thread_storage.emplace_back(serial::merge_sort<I, O>, st, en, op);
-		st = en;
-		en = std::next(st, depth);
-	}
-
-	thread_storage.emplace_back(serial::merge_sort<I, O>, st, end, op);
-
-	for (auto& t : thread_storage)
-		t.join();
-
-	// here is the fun part. The structure is now split into nbt parts that are
-	// each sorted, now we have to do merges on each 2 of the parts until we have 1 large one
-	// left. reverse the algorithm of merge sort. Im unsure of this algo but Im going to
-	// try it. It works, but we do the recurse again
-	merge_sort_parallel_merge(begin, end, nbt, depth, op);
-}
-}
-
 
 // parallel threadpooled version of mergesort
 namespace parallel_threadpool {
 
+// A handle for a posted job. Tells the depending jobs if this is done or not
 struct JobHandle {
 	std::atomic_bool done;
 };
 
+// A callable for merge sort merge
 template <typename I, typename O>
 struct MergeSortMergeWork {
 	I mBegin;
@@ -196,21 +129,10 @@ struct MergeSortMergeWork {
 	JobHandle* mRight;
 	JobHandle* mHandle;
 
-public:
 	MergeSortMergeWork() = default;
 	// @todo Make this code so we reduce the amount of copies
 	MergeSortMergeWork(MergeSortMergeWork& ) = delete;
 	MergeSortMergeWork(MergeSortMergeWork&& ) = default;
-
-	MergeSortMergeWork(I begin, I mid, I end, O op, JobHandle* left, JobHandle* right, JobHandle* mine)
-		: mBegin{ begin }
-		, mMid{ mid }
-		, mEnd{ end }
-		, mOp{ op }
-		, mLeft{ left }
-		, mRight{ right }
-		, mHandle{ mine }
-		{}
 
 	void operator() () {
 		// @todo see how much time we waste here
@@ -218,11 +140,11 @@ public:
 		while (!mLeft->done or !mRight->done); // wait until the parent two nodes are sorted
 		auto merged = ::detail::merge_sort_merge(mBegin, mMid, mEnd, mOp);
 		std::move(merged.begin(), merged.end(), mBegin);
-		// print(mBegin, mEnd);
 		mHandle->done = true;
 	}
 };
 
+// A callable for merge sort
 template <typename I, typename O>
 struct MergeSortWork {
 	I mBegin;
@@ -230,7 +152,6 @@ struct MergeSortWork {
 	O mOp;
 	JobHandle* mHandle;
 
-public:
 	MergeSortWork() = default;
 	// @todo Make this code so we reduce the amount of copies
 	MergeSortWork(MergeSortWork& ) = delete;
@@ -283,16 +204,19 @@ JobHandle* merge_sort_threadpool_sort(ThreadPoolSchedular& tps, I begin, I end, 
 }
 
 template <typename I, typename O = std::less<typename I::value_type>,
-          typename = std::enable_if_t<std::is_base_of<std::forward_iterator_tag, typename std::iterator_traits<I>::iterator_category>::value>>
+          typename = std::enable_if_t<std::is_base_of<std::random_access_iterator_tag, typename std::iterator_traits<I>::iterator_category>::value>>
 void merge_sort(I begin, I end, ThreadPoolSchedular& tps, O op = {  }) {
 	auto master_handle = merge_sort_threadpool_sort(tps, begin, end, op);
-	ThreadPoolSchedular::master_loop(tps, master_handle);
+	// ThreadPoolSchedular::master_loop(tps, master_handle);
+	while (!master_handle->done) {
+		std::this_thread::yield();
+	}
 }
 
 } // end namespace parallel_threadpool
 
 // attribute((no_instrument_function))
-auto create_array_to_sort(int MAX = 100'007) {
+auto create_array_to_sort(int MAX = 100'000) {
 	std::vector<NoCopy<char>> data;
 	data.reserve(MAX * 1.5);
 
@@ -320,24 +244,9 @@ int main() {
 	auto timeEnd = clk::now();
 	std::chrono::duration<double> elapse{ timeEnd - timeStart };
 	float timeTaken = elapse.count();
-	std::cout << "Threadpool took " << timeTaken << std::endl;
+	if (std::is_sorted(sort_data.begin(), sort_data.end()))
+		std::cout << "Threadpool took " << timeTaken << std::endl;
 }
-
-// Parallel sort
-// {
-// 	auto sort_data = create_array_to_sort(16);
-// 	print(sort_data.begin(), sort_data.end());
-// 	auto timeStart = clk::now();
-// 	parallel_static::merge_sort(sort_data.begin(), sort_data.end(), 8);
-// 	auto timeEnd = clk::now();
-// 	print(sort_data.begin(), sort_data.end());
-// 	std::chrono::duration<double> elapse{ timeEnd - timeStart };
-// 	float timeTaken = elapse.count();
-// 	if (std::is_sorted(sort_data.begin(), sort_data.end()))
-// 		std::cout << "Parallel   took " << timeTaken << std::endl;
-
-// }
-
 
 // Serial sort
 {
