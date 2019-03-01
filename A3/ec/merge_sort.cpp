@@ -117,17 +117,25 @@ namespace parallel_static {
 // @todo add some parallelism to parallel_merge function
 
 template <typename I, typename O>
-void merge_sort_parallel_merge(I begin, I end, unsigned nbt, O op = {  }) {
-	if (nbt <= 1) return;
+void merge_sort_parallel_merge(I begin, I end, unsigned nbt, size_t depth, O op = {  }) {
+	while (nbt > 1) {
+		I first{ begin };
+		I mid { std::next(begin, depth) };
+		I last{ std::next(mid, depth) };
+		nbt /= 2;
+		for (int i = 0; i < nbt - 1; ++i) {
+			auto merged = ::detail::merge_sort_merge(first, mid, last, op);
+			std::move(merged.begin(), merged.end(), begin);
+			first = last;
+			mid = std::next(begin, depth);
+			last = std::next(mid, depth);
+		}
 
-	auto size = std::distance(begin, end);
-	auto mid = std::next(begin, size / 2);
+		auto merged = ::detail::merge_sort_merge(first, mid, end, op);
+		std::move(merged.begin(), merged.end(), begin);
 
-	merge_sort_parallel_merge(begin, mid, nbt / 2, op);
-	merge_sort_parallel_merge(mid, end, nbt / 2, op);
-
-	auto merged = ::detail::merge_sort_merge(begin, mid, end, op);
-	std::move(merged.begin(), merged.end(), begin);
+		depth *= 2;
+	}
 }
 
 // if a number is a power of 2 then it will be in a format of 10000...
@@ -166,7 +174,7 @@ void merge_sort(I begin, I end, unsigned nbt, O op = {  }) {
 	// each sorted, now we have to do merges on each 2 of the parts until we have 1 large one
 	// left. reverse the algorithm of merge sort. Im unsure of this algo but Im going to
 	// try it. It works, but we do the recurse again
-	merge_sort_parallel_merge(begin, end, nbt, op);
+	merge_sort_parallel_merge(begin, end, nbt, depth, op);
 }
 }
 
@@ -316,19 +324,19 @@ int main() {
 }
 
 // Parallel sort
-{
-	auto sort_data = create_array_to_sort();
-//	print(sort_data.begin(), sort_data.end());
-	auto timeStart = clk::now();
-	parallel_static::merge_sort(sort_data.begin(), sort_data.end(), 8);
-	auto timeEnd = clk::now();
-//	print(sort_data.begin(), sort_data.end());
-	std::chrono::duration<double> elapse{ timeEnd - timeStart };
-	float timeTaken = elapse.count();
-	if (std::is_sorted(sort_data.begin(), sort_data.end()))
-		std::cout << "Parallel   took " << timeTaken << std::endl;
+// {
+// 	auto sort_data = create_array_to_sort(16);
+// 	print(sort_data.begin(), sort_data.end());
+// 	auto timeStart = clk::now();
+// 	parallel_static::merge_sort(sort_data.begin(), sort_data.end(), 8);
+// 	auto timeEnd = clk::now();
+// 	print(sort_data.begin(), sort_data.end());
+// 	std::chrono::duration<double> elapse{ timeEnd - timeStart };
+// 	float timeTaken = elapse.count();
+// 	if (std::is_sorted(sort_data.begin(), sort_data.end()))
+// 		std::cout << "Parallel   took " << timeTaken << std::endl;
 
-}
+// }
 
 
 // Serial sort
