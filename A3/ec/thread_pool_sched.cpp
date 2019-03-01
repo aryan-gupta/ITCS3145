@@ -22,6 +22,8 @@
 #include <thread>
 #include <stdint.h>
 #include <mutex>
+#include <fstream>
+#include <sstream>
 
 #include "thread_pool.hpp"
 
@@ -42,225 +44,168 @@ float f4(float x, int intensity);
 }
 #endif
 
-
-/// This holds information about a integration Job being run in the thead_pool. Keeps a count
-/// of how many jobs are left to compleate before the answer can be ready. Also has a mutex to
-/// protect the answer
-struct JobHolder {
-	int id;
-	float answer;
+struct JobHandle {
+	float answer = 0;
 	std::mutex lock;
-	std::atomic_int left;
-
-	JobHolder() = default;
+	std::atomic_uint16_t left;
 
 	bool done() {
 		return left == 0;
 	}
 };
 
-
-/// This class holds a job that needs to be done when integrating. It stores the start and the end values
-/// it is taking care of. For each integration there will be many of these classes. Each thread will pull
-/// a work from the schedular, call the operator() on this and sync up with the shared variable.
-class integrate_work {
+struct IntegrateWork {
 	func_t functionid;
 	int a;
 	int b;
 	int n;
+	int intensity;
+
 	int start;
 	int end;
-	int intensity;
-	JobHolder* job;
 
-public:
-	integrate_work() = default;
+	JobHandle* jh;
 
-	integrate_work(func_t func, int a, int b, int n, int start, int end, int intensity, JobHolder* holder)
-		: functionid{ func }
-		, a{ a }
-		, b{ b }
-		, n{ n }
-		, start { start }
-		, end{ end }
-		, intensity{ intensity }
-		, job{ holder }
-		{}
-
-	void sync_with_shared(float& ans) {
-		std::unique_lock lk{ job->lock };
-		job->answer += ans;
-		ans = 0;
-	}
 
 	void operator() () {
 		float ban = (b - a) / (float)n;
-		float ans{};
-
+		float local_ans{  };
 		for (int i = start; i < end; ++i) {
 			float x = a + ((float)i + 0.5) * ban;
-			ans += functionid(x, intensity);
+			local_ans += functionid(x, intensity);
 		}
-		sync_with_shared(ans);
 
-		if (job->left == 1) {
-			std::unique_lock lk{ job->lock };
-			job->answer *= ban;
+		{
+			std::lock_guard { jh->lock };
+			jh->answer += local_ans;
 		}
-		job->left.fetch_add(-1);
+
+		if (jh->left.load() == 1) { // if we are the last thread
+			std::lock_guard { jh->lock };
+			jh->answer *= (b - a) / (float)n;
+		}
+
+		jh->left.fetch_sub(1);
 	}
 };
 
 
-void thread_work(ThreadPoolSchedular& sch) {
-	while(true) {
-		auto [cont, work] = sch.pop();
-		if (cont) work();
-		else return;
-	}
-}
-
-
-void start_threads(ThreadPoolSchedular& sch, size_t num) {
-	while (num --> 0) {
-		std::thread th{ thread_work, std::ref(sch) };
-		th.detach();
-	}
-}
-
-/// This function breaks the integration into jobs that the threads can compleate. Then posts the jobs in the schedular
-// returns the current number of jobs compleated and the number of total jobs it is enqued
-std::unique_ptr<JobHolder> submit_jobs(ThreadPoolSchedular& tps, func_t functionid, int a, int b, int n, int intensity, int depth) {
-	static int IDnum = 0;
-
-	JobHolder* jh = new JobHolder{  };
-	jh->id = IDnum++;
-
+JobHandle* submit_job(ThreadPoolSchedular& tps, func_t functionid, int a, int b, int n, int gran, int intensity) {
 	int start = 0;
-	int end = depth;
+	int end = gran;
 
-
-	while (start + depth < n) {
+	auto jh = new JobHandle{ };
+	while (start + gran < n) {
 		jh->left.fetch_add(1);
-		integrate_work iw{ functionid, a, b, n, start, end, intensity, jh };
-		tps.push(iw);
+		tps.push(IntegrateWork{ functionid, a, b, n, intensity, start, end, jh });
 		start = end;
-		end += depth;
+		end += gran;
 	}
 
 	jh->left.fetch_add(1);
-	integrate_work iw{ functionid, a, b, n, start, n, intensity, jh };
-	tps.push(iw);
+	tps.push(IntegrateWork{ functionid, a, b, n, intensity, start, n, jh });
 
-	return std::unique_ptr<JobHolder>{ jh };
+	return jh;
 }
 
+// Tuple is functionid, n, intensity, gran, answer
+std::vector<std::tuple<func_t, int, int, int, float>> get_jobs(std::string_view fname) {
+	std::ifstream file{ fname.data() };
+	std::vector<std::tuple<func_t, int, int, int, float>> ret_val;
 
-std::unique_ptr<JobHolder> start_new_integration(ThreadPoolSchedular& tps) {
-	std::cout << "What function would you like to integrate?" << std::endl;
-	std::cout << ":: ";
-	int id;
-	std::cin >> id;
-	std::cout << id;
+	for (std::string line; std::getline(file, line); ) {
+		std::stringstream ss{ line };
 
-	func_t func = nullptr;
-	switch (id) {
-		case 1: func = f1; break;
-		case 2: func = f2; break;
-		case 3: func = f3; break;
-		case 4: func = f4; break;
-		default: {
-			std::cout << "[E] Ya, you screwed up... have fun" << std::endl;
-			return nullptr;
-		}
-	}
-
-	std::cout << "What is the start of integration?" << std::endl;
-	std::cout << ":: ";
-	int a;
-	std::cin >> a;
-
-	std::cout << "What is the end of integration?" << std::endl;
-	std::cout << ":: ";
-	int b;
-	std::cin >> b;
-
-	std::cout << "What is the width of dx (n)?" << std::endl;
-	std::cout << ":: ";
-	int n;
-	std::cin >> n;
-
-	std::cout << "What is the intensity?" << std::endl;
-	std::cout << ":: ";
-	int intensity;
-	std::cin >> intensity;
-
-	std::cout << "What is the granulity of work division?" << std::endl;
-	std::cout << ":: ";
-	int gran;
-	std::cin >> gran;
-
-	std::cout << "Calculating..." << std::endl;
-
-	return submit_jobs(tps, func, a, b, n, intensity, gran);
-}
-
-void print_jobs(std::vector<std::unique_ptr<JobHolder>>& jobs) {
-	for (auto& jhp : jobs) {
-		std::cout << "ID: " << jhp->id << "\t\t";
-		if (jhp->done())
-			std::cout << "Answer: " << jhp->answer << std::endl;
-		else
-			std::cout << "Work is not done.... " << std::endl;
-	}
-}
-
-
-int main (int argc, char* argv[]) {
-
-	std::vector<std::unique_ptr<JobHolder>> jobs{  };
-
-	std::cout << "Please choose the number of threads to start..." << std::endl;
-	std::cout << ":: ";
-	unsigned nbthreads{  };
-
-	do {
 		int tmp;
-		std::cin >> tmp;
-		if (tmp > 0) {
-			nbthreads = tmp;
-		} else {
-			std::cout << "That is incorrect... Try again\n:: ";
-			std::cin.clear();
-			std::cin.ignore(SIZE_MAX);
+		func_t func{ };
+		ss >> tmp;
+		switch (tmp) {
+			case 1: func = f1; break;
+			case 2: func = f2; break;
+			case 3: func = f3; break;
+			case 4: func = f4; break;
+			default: {
+				std::cout << "[E] Ya, you screwed up... have fun" << std::endl;
+				return {  };
+			}
 		}
-	} while (nbthreads == 0);
 
-	ThreadPoolSchedular tps{  };
-	start_threads(tps, nbthreads);
-	std::cout << "Started " << nbthreads << " threads" << std::endl;
+		int n, intensity, nbthreads;
+		ss >> n;
+		ss >> intensity;
+		ss >> nbthreads;
 
-	unsigned choice;
-	do {
-		std::cout << "What would you like to do?\n";
-		std::cout << "0) Quit\n";
-		std::cout << "1) Check Job Status\n";
-		std::cout << "2) Start new integration\n";
-		std::cin >> choice;
-		switch (choice) {
-			case 0: break;
-			case 1: print_jobs(jobs); break;
-			case 2: {
-				auto handle = start_new_integration(tps);
-				std::cout << "Job ID: " << handle->id << std::endl;
-				jobs.push_back(std::move(handle));
-			} break;
+		std::string type;
+		ss >> type;
+
+		int gran;
+		ss >> gran;
+		gran = n;
+
+		float ans;
+		ss >> ans;
+
+		ret_val.emplace_back(func, n, intensity, gran, ans);
+	}
+
+	return ret_val;
+}
+
+
+int main(int argc, char* argv[]) {
+	//const char loc[] = "/home/aryan/Projects/ITCS3145/A3/dynamic/cases.txt";
+	const char loc[] = "../dynamic/cases.txt";
+
+	if (argc < 2) {
+		std::cerr<<"usage: "<<argv[0]<<" <nbthreads>"<<std::endl;
+		return -1;
+	}
+
+	int nbthreads = std::atoi(argv[1]);
+
+	std::cout << "[I] Pulling Jobs from cases.txt..."<< std::endl;
+	auto todo = get_jobs(loc);
+
+	std::cout << "[I] Starting ThreadPool threads (" << nbthreads << " threads)" << std::endl;
+	ThreadPoolSchedular tps{ nbthreads };
+
+	int a = 0;
+	int b = 10;
+
+	std::cout << "[I] Posting jobs for threadpool to do..." << std::endl;
+	std::vector<std::tuple<JobHandle*, float>> jobs;
+	for (auto [f, n, intensity, gran, answer] : todo) {
+		auto jh = submit_job(tps, f, a, b, n, gran, intensity);
+		jobs.emplace_back(jh, answer);
+	}
+
+	std::cout << "[I] Waiting for jobs to finish... Total Jobs posted: " << jobs.size() << std::endl;
+
+	bool done = false;
+	while (!done) {
+		done = true;
+		for (auto [handle, correct] : jobs) {
+			if (!handle->done()) {
+				done = false;
+			}
 		}
-	} while (choice != 0);
+	}
 
 	tps.end();
-	std::cout << "Waiting 5 seconds for detached threads to end..." << std::endl;
-	std::this_thread::sleep_for(std::chrono::seconds{ 5 });
+
+	std::cout << "[I] Jobs finished." << std::endl;
+
+	int nbcorrect = 0;
+	for (auto [handle, correct] : jobs) {
+		if (std::abs(handle->answer - correct) > 0.001 ) {
+			std::cout << "[E] Incorrect: " << handle->answer << " != " << correct << std::endl;
+		} else {
+			++nbcorrect;
+		}
+	}
+
+	std::cout << "[I] Number Correct: " << nbcorrect << std::endl;
 
 	return 0;
+
 }
