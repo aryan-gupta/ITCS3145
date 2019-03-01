@@ -56,17 +56,9 @@ int main (int argc, char* argv[]) {
   auto tStart = clk::now();
   int sum{  };
 
-  #pragma omp parallel
-  {
-    int psum{  };
-
-    #pragma omp for
-    for (size_t i = 0; i < n; ++i) {
-      psum += arr[i];
-    }
-
-    #pragma omp critical
-    sum += psum;
+  #pragma omp parallel for reduction(+:sum)
+  for (size_t i = 0; i < n; ++i) {
+    sum += arr[i];
   }
 
   auto tEnd = clk::now();
