@@ -44,15 +44,41 @@ float f4(float x, int intensity);
 }
 #endif
 
-struct JobHandle {
-	float answer = 0;
+class JobHandle {
+	float answer;
 	std::mutex lock;
 	std::atomic_uint16_t left;
+
+public:
+	void add() {
+		left.fetch_add(1);
+	}
+
+	void sub() {
+		left.fetch_sub(1);
+	}
+
+	void sync(float local) {
+		std::lock_guard { lock };
+		answer += local;
+	}
+
+	void finalize(float ban) {
+		if (left.load() == 1)
+			answer *= ban;
+	}
 
 	bool done() {
 		return left == 0;
 	}
+
+	float get() {
+		return answer;
+	}
 };
+
+static std::mutex lock{  };
+static std::vector<std::tuple<int, int, float>> ansVec{ };
 
 struct IntegrateWork {
 	func_t functionid;
@@ -70,22 +96,15 @@ struct IntegrateWork {
 	void operator() () {
 		float ban = (b - a) / (float)n;
 		float local_ans{  };
+
 		for (int i = start; i < end; ++i) {
 			float x = a + ((float)i + 0.5) * ban;
 			local_ans += functionid(x, intensity);
 		}
 
-		{
-			std::lock_guard { jh->lock };
-			jh->answer += local_ans;
-		}
-
-		if (jh->left.load() == 1) { // if we are the last thread
-			std::lock_guard { jh->lock };
-			jh->answer *= (b - a) / (float)n;
-		}
-
-		jh->left.fetch_sub(1);
+		jh->sync(local_ans);
+		jh->finalize(ban);
+		jh->sub();
 	}
 };
 
@@ -96,13 +115,13 @@ JobHandle* submit_job(ThreadPoolSchedular& tps, func_t functionid, int a, int b,
 
 	auto jh = new JobHandle{ };
 	while (start + gran < n) {
-		jh->left.fetch_add(1);
+		jh->add();
 		tps.push(IntegrateWork{ functionid, a, b, n, intensity, start, end, jh });
 		start = end;
 		end += gran;
 	}
 
-	jh->left.fetch_add(1);
+	jh->add();
 	tps.push(IntegrateWork{ functionid, a, b, n, intensity, start, n, jh });
 
 	return jh;
@@ -140,7 +159,7 @@ std::vector<std::tuple<func_t, int, int, int, float>> get_jobs(std::string_view 
 
 		int gran;
 		ss >> gran;
-		gran = n;
+		// gran = 1;
 
 		float ans;
 		ss >> ans;
@@ -153,19 +172,30 @@ std::vector<std::tuple<func_t, int, int, int, float>> get_jobs(std::string_view 
 
 
 int main(int argc, char* argv[]) {
-	//const char loc[] = "/home/aryan/Projects/ITCS3145/A3/dynamic/cases.txt";
-	const char loc[] = "../dynamic/cases.txt";
-
 	if (argc < 2) {
 		std::cerr<<"usage: "<<argv[0]<<" <nbthreads>"<<std::endl;
-		return -1;
+		// return -1;
 	}
 
-	int nbthreads = std::atoi(argv[1]);
+	int nbthreads = 8; //std::atoi(argv[1]);
 
-	std::cout << "[I] Pulling Jobs from cases.txt..."<< std::endl;
-	auto todo = get_jobs(loc);
+	#ifdef CASES_FILE
+		//const char loc[] = "/home/aryan/Projects/ITCS3145/A3/dynamic/cases.txt";
+		const char loc[] = "../dynamic/cases.txt";
+		std::cout << "[I] Pulling Jobs from cases.txt..."<< std::endl;
+		auto todo = get_jobs(loc);
+	#else
+		std::cout << "[I] Manually adding jobs..."<< std::endl;
+		std::vector<std::tuple<func_t, int, int, int, float>> todo{  };
+		// Tuple is functionid, n, intensity, gran, answer
+		// todo.emplace_back(f1, 1'000, 1'0000, 100, 50);
+		todo.emplace_back(f1, 100'000, 1, 10, 50);
+		todo.emplace_back(f2, 1'000'000, 10, 10'000, 333.333);
+		todo.emplace_back(f2, 1'000'000, 10, 100, 333.333);
+		// todo.emplace_back(f3, 1'000'000, 10, 10'000, 1.83908);
+		// todo.emplace_back(f4, 1'000'000, 10, 10'000, 12.1567);
 
+	#endif
 	std::cout << "[I] Starting ThreadPool threads (" << nbthreads << " threads)" << std::endl;
 	ThreadPoolSchedular tps{ nbthreads };
 
@@ -189,6 +219,7 @@ int main(int argc, char* argv[]) {
 				done = false;
 			}
 		}
+		std::this_thread::yield();
 	}
 
 	tps.end();
@@ -197,8 +228,8 @@ int main(int argc, char* argv[]) {
 
 	int nbcorrect = 0;
 	for (auto [handle, correct] : jobs) {
-		if (std::abs(handle->answer - correct) > 0.001 ) {
-			std::cout << "[E] Incorrect: " << handle->answer << " != " << correct << std::endl;
+		if (std::abs(handle->get() - correct) > 0.001 ) {
+			std::cout << "[E] Incorrect: " << handle->get() << " != " << correct << std::endl;
 		} else {
 			++nbcorrect;
 		}

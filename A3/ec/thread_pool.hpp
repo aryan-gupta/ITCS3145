@@ -6,6 +6,7 @@
 #include <atomic>
 
 #include "lockfree_queue.hpp"
+#include "parallel_queue.hpp"
 
 // Internal implementation for the ThreadPoolSchedular. I wanted to make the code as modular as possible
 // so I took some inspiration from std::any. The gist of this code is that there is a base class with a v-table
@@ -84,7 +85,7 @@ private:
 
 	std::vector<std::thread> mThreads;
 
-	ari::lockfree_queue<func_t> mQ;
+	parallel_queue<func_t> mQ;
 	std::atomic_bool mKill;
 
 public:
@@ -97,7 +98,7 @@ public:
 	}
 
 	static void thread_loop(ThreadPoolSchedular& tps) {
-		while(true) {
+		while(!tps.mKill.load()) {
 			auto [cont, work] = tps.pop();
 			if (cont) work();
 			else break;
