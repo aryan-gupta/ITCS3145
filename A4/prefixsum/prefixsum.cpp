@@ -42,6 +42,7 @@ std::unique_ptr<T, decltype(std::free)*> malloc_uptr(std::size_t num) {
   return uptr;
 }
 
+
 namespace serial {
   // decided to change styles. Lets see where this goes
   void prefixsum(int *arr, size_t n, int *pr) {
@@ -52,6 +53,7 @@ namespace serial {
     }
   }
 } // end namespace serial
+
 
 namespace parallel {
   int prefixsum_serial(int *start, int *end, int *pr) {
@@ -71,20 +73,21 @@ namespace parallel {
       offset += errors[i];
     }
 
-    while (++pstart != pend) {
+    while (pstart++ != pend) {
       *pstart += offset;
     }
 
   }
 
   void prefixsum(int *const arr, size_t n, int *const pr) {
-    omp_set_num_threads(2);
+    unsigned nbthreads;
+    #pragma omp parallel
+    {
+      #pragma omp once
+      nbthreads = omp_get_num_threads();
+    }
 
-    ::print(arr, arr + n);
-
-    int nbthreads = 2;
     auto partials = malloc_uptr<int[]>(nbthreads);
-
     int gran = n / nbthreads;
 
     #pragma omp parallel
@@ -103,8 +106,6 @@ namespace parallel {
       int *pend   = (threadid == nbthreads - 1)? pr + n : pstart + gran; // if we are the last thread then take care of the edge cases
       prefixsum_fix(pstart, pend, partials.get());
     }
-
-    ::print(pr, pr + n + 1);
   }
 }
 
@@ -118,6 +119,7 @@ auto measure_func(F func, A... args) -> std::pair<float, R> {
   std::chrono::duration<float> elapse = end - start;
   return { elapse.count(), std::move(result) };
 }
+
 
 template<typename F, typename... A>
 float measure_func(F func, A... args) {
@@ -150,10 +152,16 @@ int main (int argc, char* argv[]) {
 
 
   int n = atoi(argv[1]);
+  int nbthreads = atoi(argv[2]);
+  omp_set_num_threads(nbthreads);
+
 
   int * arr = new int [n];
   int * pr = new int [n+1];
   generatePrefixSumData (arr, n);
+  // for (int i = 0; i < n; ++i) {
+  //   arr[i] = i;
+  // }
 
   float elapse = measure_func(parallel::prefixsum, arr, n, pr);
   std::cerr << elapse << std::endl;
