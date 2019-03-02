@@ -24,6 +24,18 @@ extern "C" {
 
 
 
+namespace serial {
+  // decided to change styles. Lets see where this goes
+  void prefixsum(int *arr, size_t n, int *pr) {
+    pr[0] = 0;
+
+    for (size_t i = 0; i < n; ++i) {
+      pr[i + 1] = pr[i] + arr[i];
+    }
+  }
+} // end namespace serial
+
+
 using clk = std::chrono::high_resolution_clock;
 template <typename F, typename... A, typename R = typename std::result_of<F>::type>
 auto measure_func(F func, A... args) -> std::pair<float, R> {
