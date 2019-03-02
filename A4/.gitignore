@@ -11,3 +11,5 @@ sequential/reduce_seq
 sequential/numint_seq
 prefixsum/prefixsum_seq
 mergesort/mergesort_seq
+.passed*
+approx
