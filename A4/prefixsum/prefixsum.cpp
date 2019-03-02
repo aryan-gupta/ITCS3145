@@ -142,27 +142,26 @@ int main (int argc, char* argv[]) {
       std::cerr<<"something is amiss"<<std::endl;
     }
   }
-  
+
   if (argc < 3) {
     std::cerr<<"Usage: "<<argv[0]<<" <n> <nbthreads>"<<std::endl;
     return -1;
   }
 
-  
+
   int n = atoi(argv[1]);
 
   int * arr = new int [n];
+  int * pr = new int [n+1];
   generatePrefixSumData (arr, n);
 
-  int * pr = new int [n+1];
+  float elapse = measure_func(parallel::prefixsum, arr, n, pr);
+  std::cerr << elapse << std::endl;
 
-  //insert prefix sum code here
-
-  
-  
   checkPrefixSumResult(pr, n);
 
   delete[] arr;
+  delete[] pr;
 
   return 0;
 }
