@@ -31,14 +31,17 @@ void print(I begin, I end) {
 }
 
 
+template <typename T>
+using malloc_uptr_t = std::unique_ptr<T, decltype(std::free)*>;
+
 // Just playing around with things.
 // interesting: https://stackoverflow.com/questions/6893285/
 template <typename T, typename D = typename std::decay<T>::type, typename B = typename std::remove_pointer<D>::type>
-std::unique_ptr<T, decltype(std::free)*> malloc_uptr(std::size_t num) {
+malloc_uptr_t<T> malloc_uptr(std::size_t num) {
   if (num != 1) assert(std::is_array<T>::value);
 
   D ptr = static_cast<D>(std::malloc(sizeof(B) * num));
-  std::unique_ptr<T, decltype(std::free)*> uptr{ ptr, &std::free };
+  malloc_uptr_t<T> uptr{ ptr, &std::free };
   return uptr;
 }
 
@@ -80,30 +83,25 @@ namespace parallel {
   }
 
   void prefixsum(int *const arr, size_t n, int *const pr) {
-    unsigned nbthreads;
+    malloc_uptr_t<int[]> partials { nullptr, nullptr };
     #pragma omp parallel
     {
+      int nbthreads = omp_get_num_threads();
       #pragma omp once
-      nbthreads = omp_get_num_threads();
-    }
+      {
+        partials = malloc_uptr<int[]>(nbthreads);
+      }
 
-    auto partials = malloc_uptr<int[]>(nbthreads);
-    int gran = n / nbthreads;
-
-    #pragma omp parallel
-    {
+      #pragma omp barrier
+      int gran = n / nbthreads;
       int threadid = omp_get_thread_num();
       int *astart = arr + (gran * threadid);
       int *pstart = pr  + (gran * threadid);
       int *aend   = (threadid == nbthreads - 1)? arr + n : astart + gran; // if we are the last thread then take care of the edge cases
-      partials[threadid] = prefixsum_serial(astart, aend, pstart);
-    }
-
-    #pragma omp parallel
-    {
-      int threadid = omp_get_thread_num();
-      int *pstart = pr + (gran * threadid);
       int *pend   = (threadid == nbthreads - 1)? pr + n : pstart + gran; // if we are the last thread then take care of the edge cases
+
+      partials[threadid] = prefixsum_serial(astart, aend, pstart);
+      #pragma omp barrier
       prefixsum_fix(pstart, pend, partials.get());
     }
   }
@@ -129,7 +127,6 @@ float measure_func(F func, A... args) {
   std::chrono::duration<float> elapse = end - start;
   return elapse.count();
 }
-
 
 
 int main (int argc, char* argv[]) {
