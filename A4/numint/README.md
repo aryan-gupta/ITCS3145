@@ -1,0 +1,2 @@
+Question: Run the code on mamba, in the numint/ directory, using make bench. Plot charts with make plot. Does the plot make sense? Why?
+	Yes it does, there is speed up when using more threads. And a decrease in speedup when the granulity is too low.
