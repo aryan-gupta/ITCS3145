@@ -6,6 +6,12 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <chrono>
+#include <utility>
+#include <type_traits>
+#include <memory>
+#include <cassert>
+#include <iterator>
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,6 +21,28 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
+
+
+
+using clk = std::chrono::high_resolution_clock;
+template <typename F, typename... A, typename R = typename std::result_of<F>::type>
+auto measure_func(F func, A... args) -> std::pair<float, R> {
+  auto start = clk::now();
+  R result = func( std::forward<A>(args)... );
+  auto end = clk::now();
+  std::chrono::duration<float> elapse = end - start;
+  return { elapse.count(), std::move(result) };
+}
+
+template<typename F, typename... A>
+float measure_func(F func, A... args) {
+  auto start = clk::now();
+  func( std::forward<A>(args)... );
+  auto end = clk::now();
+  std::chrono::duration<float> elapse = end - start;
+  return elapse.count();
+}
+
 
 
 int main (int argc, char* argv[]) {
