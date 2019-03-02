@@ -87,12 +87,11 @@ namespace parallel {
     #pragma omp parallel
     {
       int nbthreads = omp_get_num_threads();
-      #pragma omp once
+      #pragma omp single
       {
         partials = malloc_uptr<int[]>(nbthreads);
       }
 
-      #pragma omp barrier
       int gran = n / nbthreads;
       int threadid = omp_get_thread_num();
       int *astart = arr + (gran * threadid);
