@@ -23,6 +23,14 @@ extern "C" {
 #endif
 
 
+// prints between 2 iterator like objects to cout
+template <typename I, typename V = typename std::iterator_traits<I>::value_type>
+void print(I begin, I end) {
+  std::copy(begin, end, std::ostream_iterator<V>{ std::cout, " "});
+  std::cout << std::endl;
+}
+
+
 
 namespace serial {
   // decided to change styles. Lets see where this goes
