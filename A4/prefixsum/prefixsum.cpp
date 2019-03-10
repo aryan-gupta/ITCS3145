@@ -72,7 +72,7 @@ namespace serial {
   /// @param arr The original array to conduct prefix sum on
   /// @param n   The size of \p arr
   /// @param pr  The array to store the result (must be of size n + 1)
-  void prefixsum(int *arr, size_t n, int *pr) {
+  void prefixsum(int const *arr, size_t n, int *pr) {
     pr[0] = 0;
 
     for (size_t i = 0; i < n; ++i) {
@@ -87,7 +87,7 @@ namespace parallel {
   /// @param start The start of the array
   /// @param end   The end of the array
   /// @param pr    The start of the array where to store the result
-  int prefixsum_serial(int *start, int *end, int *pr) {
+  int prefixsum_serial(int const *start, int const *end, int *pr) {
     pr[1] = *start;
 
     for (++start, ++pr; start != end; ++start, ++pr) {
@@ -101,7 +101,7 @@ namespace parallel {
   /// @param pstart The start of the prefixsum array to fix
   /// @param pend   The end of the prefixsum array
   /// @param errors An array of the other thread's offset/errors
-  void prefixsum_fix(int *pstart, int* pend, int const *const errors) {
+  void prefixsum_fix(int *pstart, int* pend, int const *errors) {
     int offset{  };
     for (int i = 0; i < omp_get_thread_num(); ++i) {
       offset += errors[i];
@@ -117,32 +117,31 @@ namespace parallel {
   /// @param arr The original array to conduct prefix sum on
   /// @param n   The size of \p arr
   /// @param pr  The array to store the result (must be of size n + 1)
-  void prefixsum(int *const arr, size_t n, int *const pr) {
-    malloc_uptr_t<int[]> partials { nullptr, nullptr };
+  void prefixsum(int *arr, size_t n, int *pr) {
+    malloc_uptr_t<int[]> errors { nullptr, nullptr }; // tmp array for errors
     #pragma omp parallel
     {
       int nbthreads = omp_get_num_threads();
       #pragma omp single
-      {
-        partials = malloc_uptr<int[]>(nbthreads);
-      }
+      errors = get_malloc_uptr<int[]>(nbthreads);
 
-      int gran = n / nbthreads;
+      int gran     = n / nbthreads;
       int threadid = omp_get_thread_num();
-      int *astart = arr + (gran * threadid);
-      int *pstart = pr  + (gran * threadid);
-      int *aend   = (threadid == nbthreads - 1)? arr + n : astart + gran; // if we are the last thread then take care of the edge cases
-      int *pend   = (threadid == nbthreads - 1)? pr + n : pstart + gran; // if we are the last thread then take care of the edge cases
+      int *astart  = arr + (gran * threadid);
+      int *pstart  = pr  + (gran * threadid);
+      int *aend    = (threadid == nbthreads - 1)? arr + n : astart + gran; // if we are the last thread then take care of the edge cases
+      int *pend    = (threadid == nbthreads - 1)? pr  + n : pstart + gran; // if we are the last thread then take care of the edge cases
 
-      partials[threadid] = prefixsum_serial(astart, aend, pstart);
+      errors[threadid] = prefixsum_serial(astart, aend, pstart);
       #pragma omp barrier
-      prefixsum_fix(pstart, pend, partials.get());
+      prefixsum_fix(pstart, pend, errors.get());
     }
   }
 }
 
 
-using clk = std::chrono::high_resolution_clock;
+using clk = std::chrono::steady_clock;
+
 /// Measures the exec time of a function and returns the result and time in seconds
 /// @param func The function to call
 /// @param args The arguments to pass into the function
