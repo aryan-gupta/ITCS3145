@@ -80,21 +80,21 @@ namespace detail {
 // Merge Sort merge
 template <typename I, typename O>
 void merge_sort_merge(I begin, I mid, I end, O op) {
-	std::vector<typename std::iterator_traits<I>::value_type> tmp{  };
+  std::vector<typename std::iterator_traits<I>::value_type> tmp{  };
 
   auto lbegin = begin;
-	auto rbegin = mid;
+  auto rbegin = mid;
 
-	while (lbegin != mid and rbegin != end) {
-		if (op(*lbegin, *rbegin))
-			tmp.push_back(std::move(*lbegin++));
-		else
-			tmp.push_back(std::move(*rbegin++));
-	}
+  while (lbegin != mid and rbegin != end) {
+    if (op(*lbegin, *rbegin))
+      tmp.push_back(std::move(*lbegin++));
+    else
+      tmp.push_back(std::move(*rbegin++));
+  }
 
   std::move(lbegin, mid, std::back_inserter(tmp));
-	std::move(rbegin, end, std::back_inserter(tmp));
-	std::move(tmp.begin(), tmp.end(), begin);
+  std::move(rbegin, end, std::back_inserter(tmp));
+  std::move(tmp.begin(), tmp.end(), begin);
 }
 }
 
