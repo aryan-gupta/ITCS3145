@@ -147,10 +147,10 @@ using clk = std::chrono::high_resolution_clock;
 /// @param func The function to call
 /// @param args The arguments to pass into the function
 /// @return A std::pair containing the time in seconds and the result
-template <typename F, typename... A, typename R = typename std::result_of<F>::type>
-auto measure_func(F func, A... args) -> std::pair<float, R> {
+template <typename F, typename... A>
+auto measure_func(F func, A... args) -> std::pair<float, typename std::result_of<F>::type> {
   auto start = clk::now();
-  R result = func( std::forward<A>(args)... );
+  auto result = func( std::forward<A>(args)... );
   auto end = clk::now();
   std::chrono::duration<float> elapse = end - start;
   return { elapse.count(), std::move(result) };
