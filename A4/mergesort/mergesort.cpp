@@ -8,6 +8,7 @@
 #include <vector>
 #include <iterator>
 #include <iostream>
+#include <chrono>
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,6 +43,35 @@ void print(I begin, I end) {
   using ValueType = typename std::iterator_traits<I>::value_type;
   std::copy(begin, end, std::ostream_iterator<ValueType>{ std::cout, " "});
   std::cout << std::endl;
+}
+
+using clk = std::chrono::steady_clock;
+
+/// Measures the exec time of a function and returns the result and time in seconds
+/// @param func The function to call
+/// @param args The arguments to pass into the function
+/// @return A std::pair containing the time in seconds and the result
+template <typename F, typename... A>
+auto measure_func(F func, A &&...args) -> std::pair<float, typename std::result_of<F>::type> {
+  auto start = clk::now();
+  auto result = func( std::forward<A>(args)... );
+  auto end = clk::now();
+  std::chrono::duration<float> elapse = end - start;
+  return { elapse.count(), std::move(result) };
+}
+
+
+/// Measures the exec time of a function
+/// @param func The function to call
+/// @param args The arguments to pass into the function
+/// @return The execution time in seconds
+template<typename F, typename... A>
+float measure_func(F func, A &&...args) {
+  auto start = clk::now();
+  func( std::forward<A>(args)... );
+  auto end = clk::now();
+  std::chrono::duration<float> elapse = end - start;
+  return elapse.count();
 }
 
 namespace detail {
