@@ -123,6 +123,19 @@ void merge_sort(I begin, I end, O op = {  }) {
 
 
 namespace parallel {
+
+template <typename I, typename T = typename std::iterator_traits<I>::value_type, typename O = std::less<T>>
+I binary_search(I begin, I end, const T& value, O op = {  }) {
+  size_t size = std::distance(begin, end);
+  if (size <= 1) return begin;
+
+  I mid = begin + (size / 2);
+  if (op(value, *mid))
+    return binary_search(begin, mid);
+  else
+    return binary_search(mid, end);
+}
+
 template <typename I, typename O = std::less<typename std::iterator_traits<I>::value_type>,
           typename = typename std::enable_if<std::is_base_of<std::random_access_iterator_tag, typename std::iterator_traits<I>::iterator_category>::value>::type>
 void merge_sort(I begin, I end, O op = {  }) {
