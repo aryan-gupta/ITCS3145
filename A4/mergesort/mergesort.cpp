@@ -1,3 +1,4 @@
+#include <omp.h>
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -120,6 +121,29 @@ void merge_sort(I begin, I end, O op = {  }) {
 }
 
 
+namespace parallel {
+template <typename I, typename O = std::less<typename std::iterator_traits<I>::value_type>,
+          typename = typename std::enable_if<std::is_base_of<std::random_access_iterator_tag, typename std::iterator_traits<I>::iterator_category>::value>::type>
+void merge_sort(I begin, I end, O op = {  }) {
+  size_t size = std::distance(begin, end);
+  size_t jump = 1;
+
+  while (jump < size) {
+    jump *= 2;
+    #pragma omp parallel for
+    for (size_t i = 0; i < size; i += jump) {
+      I e = begin + i + jump;
+      if (e > end) e = end;
+      I m = begin + i + (jump / 2);
+      if (m > end) m = end;
+      I b = begin + i;
+      ::detail::merge_sort_merge(b, m, e, op);
+    }
+  }
+}
+}
+
+
 int main (int argc, char* argv[]) {
 
   //forces openmp to create the threads beforehand
@@ -139,14 +163,14 @@ int main (int argc, char* argv[]) {
   }
 
   int n = atoi(argv[1]);
+  int nbthreads = atoi(argv[2]);
+  omp_set_num_threads(nbthreads);
 
   // get arr data
   int * arr = new int [n];
   generateMergeSortData (arr, n);
-
-  //insert sorting code here.
-
-
+ float elapse = measure_func( parallel::merge_sort<int*>, arr, arr + n, std::less<int>{} );
+  std::cerr << elapse << std::endl;
 
   checkMergeSortResult (arr, n);
 
