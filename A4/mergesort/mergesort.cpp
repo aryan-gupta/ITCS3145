@@ -10,6 +10,7 @@
 #include <iterator>
 #include <iostream>
 #include <chrono>
+#include <memory>
 using clk = std::chrono::steady_clock;
 
 #ifdef __cplusplus
@@ -123,6 +124,85 @@ void merge_sort(I begin, I end, O op = {  }) {
 
 
 namespace parallel {
+template <typename I, typename O>
+auto merge_sort_merge_parallel(I begin, I mid, I end, O op) -> std::vector<typename std::iterator_traits<I>::value_type> {
+  using aux_ds_t = std::vector<typename std::iterator_traits<I>::value_type>;
+
+  std::unique_ptr<aux_ds_t[]> partials{  }; // this array will keep each threads partial merges
+  size_t lsize = std::distance(begin, mid);
+  size_t rsize = std::distance(mid, end);
+  int nbthreads{};
+
+  #pragma omp parallel
+  {
+    #pragma omp single
+    {
+      nbthreads = omp_get_num_threads();
+      partials.reset(new aux_ds_t[nbthreads]);
+    }
+
+    // calculate what each thread is doing
+    int lgran    = lsize / nbthreads;
+    int rgran    = rsize / nbthreads;
+    int threadid = omp_get_thread_num();
+    I b1 = begin + (lgran * threadid);
+    I b2 = mid   + (rgran * threadid);
+    I e1 = (threadid == nbthreads - 1)? mid : b1 + lgran;
+    I e2 = (threadid == nbthreads - 1)? end : b2 + rgran;
+
+    aux_ds_t tmp{  };
+
+    // #pragma omp critical
+    // {
+    //   println("Hello: ", threadid);
+    //   print(begin, end);
+    //   print(b1, e1);
+    //   print(b2, e2);
+    //   // print(tmp.begin(), tmp.end());
+    // }
+
+    // do the actual merge
+    while (b1 != e1 and b2 != e2) {
+      if (op(*b1, *b2))
+        tmp.push_back(std::move(*b1++));
+      else
+        tmp.push_back(std::move(*b2++));
+    }
+
+    std::move(b1, e1, std::back_inserter(tmp));
+    std::move(b2, e2, std::back_inserter(tmp));
+
+    #pragma omp critical
+    {
+    print(begin, end);
+    print(tmp.begin(), tmp.end());
+    println("\n");
+    }
+    // update main thread's data
+    partials[threadid] = std::move(tmp);
+  }
+
+  // combine them all together
+  aux_ds_t merged{  };
+  for (int i = 0; i < nbthreads; ++i) {
+    using move_it_t = std::move_iterator<typename aux_ds_t::iterator>;
+    merged.insert(
+      merged.end(),
+      move_it_t{ partials[i].begin() },
+      move_it_t{ partials[i].end()   }
+    );
+  }
+
+  return merged;
+}
+
+template <typename I, typename O>
+void merge_sort_merge(I begin, I mid, I end, O op) {
+  auto tmp = merge_sort_merge_parallel(begin, mid, end, op);
+  std::move(tmp.begin(), tmp.end(), begin);
+}
+
+
 template <typename I, typename O = std::less<typename std::iterator_traits<I>::value_type>,
           typename = typename std::enable_if<std::is_base_of<std::random_access_iterator_tag, typename std::iterator_traits<I>::iterator_category>::value>::type>
 void merge_sort(I begin, I end, O op = {  }) {
@@ -131,14 +211,14 @@ void merge_sort(I begin, I end, O op = {  }) {
 
   while (jump < size) {
     jump *= 2;
-    #pragma omp parallel for
+    // #pragma omp parallel for
     for (size_t i = 0; i < size; i += jump) {
       I e = begin + i + jump;
       if (e > end) e = end;
       I m = begin + i + (jump / 2);
       if (m > end) m = end;
       I b = begin + i;
-      ::detail::merge_sort_merge(b, m, e, op);
+      merge_sort_merge(b, m, e, op);
     }
   }
 }
@@ -170,7 +250,9 @@ int main (int argc, char* argv[]) {
   // get arr data
   int * arr = new int [n];
   generateMergeSortData (arr, n);
- float elapse = measure_func( parallel::merge_sort<int*>, arr, arr + n, std::less<int>{} );
+  print(arr, arr + n);
+  float elapse = measure_func( parallel::merge_sort<int*>, arr, arr + n, std::less<int>{} );
+  print(arr, arr + n);
   std::cerr << elapse << std::endl;
 
   checkMergeSortResult (arr, n);
