@@ -6,6 +6,8 @@
 #include <unistd.h>
 
 #include <vector>
+#include <iterator>
+#include <iostream>
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,6 +17,25 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
+
+/// Recurively prints out a series of printable objects, cause I cant be bothered
+/// to write std::cout << X << std::endl
+template <typename T>
+void print(T &&t) {
+  std::cout << t;
+}
+
+template <typename T, typename... A>
+void print(T &&t, A &&...args) {
+  std::cout << t;
+  print( std::forward<A>(args)... );
+}
+
+template <typename... A>
+void println(A &&...args) {
+  print(std::forward<A>(args)...  );
+  std::cout << std::endl;
+}
 
 template <typename I>
 void print(I begin, I end) {
