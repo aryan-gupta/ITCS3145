@@ -60,10 +60,9 @@ void merge_sort_merge(I begin, I mid, I end, O op) {
 			tmp.push_back(std::move(*rbegin++));
 	}
 
-	begin = std::move(tmp.begin(), tmp.end(), begin);
-
-	begin = std::move(begin, mid, begin);
-	std::move(rbegin, end, begin);
+  std::move(lbegin, mid, std::back_inserter(tmp));
+	std::move(rbegin, end, std::back_inserter(tmp));
+	std::move(tmp.begin(), tmp.end(), begin);
 }
 }
 
