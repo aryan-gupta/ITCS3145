@@ -23,7 +23,7 @@ extern "C" {
 #endif
 
 
-// prints between 2 iterator like objects to cout
+/// prints between 2 iterator like objects to cout
 template <typename I, typename V = typename std::iterator_traits<I>::value_type>
 void print(I begin, I end) {
   std::copy(begin, end, std::ostream_iterator<V>{ std::cout, " "});
@@ -31,11 +31,14 @@ void print(I begin, I end) {
 }
 
 
+// Just playing around with things.
+// interesting: https://stackoverflow.com/questions/6893285/
+// https://en.cppreference.com/w/cpp/types/disjunction "C++17"... ughhhhhh
+/// This alias and function creates a unique pointer but does not use new/delete. It uses
+/// malloc and free.
 template <typename T>
 using malloc_uptr_t = std::unique_ptr<T, decltype(std::free)*>;
 
-// Just playing around with things.
-// interesting: https://stackoverflow.com/questions/6893285/
 template <typename T, typename D = typename std::decay<T>::type, typename B = typename std::remove_pointer<D>::type>
 malloc_uptr_t<T> malloc_uptr(std::size_t num) {
   if (num != 1) assert(std::is_array<T>::value);
@@ -47,7 +50,10 @@ malloc_uptr_t<T> malloc_uptr(std::size_t num) {
 
 
 namespace serial {
-  // decided to change styles. Lets see where this goes
+  /// Serial version of the prefixsum code
+  /// @param arr The original array to conduct prefix sum on
+  /// @param n   The size of \p arr
+  /// @param pr  The array to store the result (must be of size n + 1)
   void prefixsum(int *arr, size_t n, int *pr) {
     pr[0] = 0;
 
@@ -59,6 +65,10 @@ namespace serial {
 
 
 namespace parallel {
+  /// Conducts prefixsum between 2 int iterators
+  /// @param start The start of the array
+  /// @param end   The end of the array
+  /// @param pr    The start of the array where to store the result
   int prefixsum_serial(int *start, int *end, int *pr) {
     pr[1] = *start;
 
@@ -69,6 +79,10 @@ namespace parallel {
     return *pr;
   }
 
+  /// Fixes prefixsum array by combining the results of the other threads
+  /// @param pstart The start of the prefixsum array to fix
+  /// @param pend   The end of the prefixsum array
+  /// @param errors An array of the other thread's offset/errors
   void prefixsum_fix(int *pstart, int* pend, int const *const errors) {
     int offset{  };
     for (int i = 0; i < omp_get_thread_num(); ++i) {
@@ -81,6 +95,10 @@ namespace parallel {
 
   }
 
+  /// Calculates prefix sum on an \p arr and stores it in \p pr
+  /// @param arr The original array to conduct prefix sum on
+  /// @param n   The size of \p arr
+  /// @param pr  The array to store the result (must be of size n + 1)
   void prefixsum(int *const arr, size_t n, int *const pr) {
     malloc_uptr_t<int[]> partials { nullptr, nullptr };
     #pragma omp parallel
@@ -107,6 +125,10 @@ namespace parallel {
 
 
 using clk = std::chrono::high_resolution_clock;
+/// Measures the exec time of a function and returns the result and time in seconds
+/// @param func The function to call
+/// @param args The arguments to pass into the function
+/// @return A std::pair containing the time in seconds and the result
 template <typename F, typename... A, typename R = typename std::result_of<F>::type>
 auto measure_func(F func, A... args) -> std::pair<float, R> {
   auto start = clk::now();
@@ -117,6 +139,10 @@ auto measure_func(F func, A... args) -> std::pair<float, R> {
 }
 
 
+/// Measures the exec time of a function
+/// @param func The function to call
+/// @param args The arguments to pass into the function
+/// @return The execution time in seconds
 template<typename F, typename... A>
 float measure_func(F func, A... args) {
   auto start = clk::now();
