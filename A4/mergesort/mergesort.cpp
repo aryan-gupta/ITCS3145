@@ -10,6 +10,7 @@
 #include <iterator>
 #include <iostream>
 #include <chrono>
+using clk = std::chrono::steady_clock;
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,8 +21,7 @@ extern "C" {
 }
 #endif
 
-/// Recurively prints out a series of printable objects, cause I cant be bothered
-/// to write std::cout << X << std::endl
+/// Recurively prints out a series of printable objects, cause I cant be bothered to write std::cout << X << std::endl
 template <typename T>
 void print(T &&t) {
   std::cout << t;
@@ -39,6 +39,7 @@ void println(A &&...args) {
   std::cout << std::endl;
 }
 
+/// Prints out a range between 2 iterators
 template <typename I>
 void print(I begin, I end) {
   using ValueType = typename std::iterator_traits<I>::value_type;
@@ -46,7 +47,6 @@ void print(I begin, I end) {
   std::cout << std::endl;
 }
 
-using clk = std::chrono::steady_clock;
 
 /// Measures the exec time of a function and returns the result and time in seconds
 /// @param func The function to call
@@ -74,6 +74,7 @@ float measure_func(F func, A &&...args) {
   std::chrono::duration<float> elapse = end - start;
   return elapse.count();
 }
+
 
 namespace detail {
 // Merge Sort merge
