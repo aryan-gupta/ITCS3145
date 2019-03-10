@@ -16,6 +16,13 @@ extern "C" {
 }
 #endif
 
+template <typename I>
+void print(I begin, I end) {
+  using ValueType = typename std::iterator_traits<I>::value_type;
+  std::copy(begin, end, std::ostream_iterator<ValueType>{ std::cout, " "});
+  std::cout << std::endl;
+}
+
 namespace detail {
 // Merge Sort merge
 template <typename I, typename O>
