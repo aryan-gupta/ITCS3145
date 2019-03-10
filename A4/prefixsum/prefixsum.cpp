@@ -22,11 +22,26 @@ extern "C" {
 }
 #endif
 
+#ifdef __cpp_concepts
+template <typename T>
+concept bool ForwardIterator() {
+  return requires(T a) {
+    { ++a } -> T;
+    { a++ } -> T;
+    { *a  } -> typename std::iterator_traits<T>::value_type;
+  };
+}
+#endif
 
 /// prints between 2 iterator like objects to cout
-template <typename I, typename V = typename std::iterator_traits<I>::value_type>
+#ifdef __cpp_concepts
+template <ForwardIterator I>
+#else
+template <typename I>
+#endif
 void print(I begin, I end) {
-  std::copy(begin, end, std::ostream_iterator<V>{ std::cout, " "});
+  using ValueType = typename std::iterator_traits<I>::value_type;
+  std::copy(begin, end, std::ostream_iterator<ValueType>{ std::cout, " "});
   std::cout << std::endl;
 }
 
