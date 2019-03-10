@@ -54,11 +54,14 @@ void print(I begin, I end) {
 template <typename T>
 using malloc_uptr_t = std::unique_ptr<T, decltype(std::free)*>;
 
-template <typename T, typename D = typename std::decay<T>::type, typename B = typename std::remove_pointer<D>::type>
-malloc_uptr_t<T> malloc_uptr(std::size_t num) {
-  if (num != 1) assert(std::is_array<T>::value);
+template<typename T>
+malloc_uptr_t<T> get_malloc_uptr(size_t num = 1) {
+  using BaseType = typename std::remove_extent<T>::type;
+  using PointerType = typename std::add_pointer<BaseType>::type;
 
-  D ptr = static_cast<D>(std::malloc(sizeof(B) * num));
+  if (num != 1) assert(std::is_array<T>::value); // if num is 0 then it just returns nullptr
+
+  auto ptr = static_cast<PointerType>(std::malloc(sizeof(BaseType) * num));
   malloc_uptr_t<T> uptr{ ptr, &std::free };
   return uptr;
 }
