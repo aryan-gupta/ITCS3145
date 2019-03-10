@@ -60,11 +60,10 @@ namespace serial {
 
 namespace parallel {
   int prefixsum_serial(int *start, int *end, int *pr) {
-    int* s = pr;
-    *(++pr) = *start;
+    pr[1] = *start;
 
-    while (start++ != end - 1) {
-      *(++pr) = *pr + *start;
+    for (++start, ++pr; start != end; ++start, ++pr) {
+      pr[1] = *pr + *start;
     }
 
     return *pr;
