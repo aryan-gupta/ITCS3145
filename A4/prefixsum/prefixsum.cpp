@@ -152,7 +152,7 @@ auto measure_func(F func, A... args) -> std::pair<float, typename std::result_of
   auto result = func( std::forward<A>(args)... );
   auto end = clk::now();
   std::chrono::duration<float> elapse = end - start;
-  return { elapse.count(), std::move(result) };
+  return { elapse.count(), result };
 }
 
 
@@ -197,14 +197,9 @@ int main (int argc, char* argv[]) {
   int * arr = new int [n];
   int * pr = new int [n+1];
   generatePrefixSumData (arr, n);
-  // for (int i = 0; i < n; ++i) {
-  //   arr[i] = i;
-  // }
-
   float elapse = measure_func(parallel::prefixsum, arr, n, pr);
-  std::cerr << elapse << std::endl;
-
   checkPrefixSumResult(pr, n);
+  std::cerr << elapse << std::endl;
 
   delete[] arr;
   delete[] pr;
