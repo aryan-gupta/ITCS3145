@@ -58,7 +58,7 @@ auto measure_func(F func, A &&...args) -> std::pair<float, typename std::result_
   auto result = func( std::forward<A>(args)... );
   auto end = clk::now();
   std::chrono::duration<float> elapse = end - start;
-  return { elapse.count(), std::move(result) };
+  return { elapse.count(), result };
 }
 
 
