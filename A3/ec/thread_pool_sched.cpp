@@ -29,6 +29,7 @@
 
 using hrc = std::chrono::high_resolution_clock;
 
+// #define CASES_FILE
 
 using func_t = float (*)(float, int);
 #ifdef __cplusplus
@@ -155,12 +156,19 @@ std::vector<std::tuple<func_t, int, int, int, float>> get_jobs(std::string_view 
 
 
 int main(int argc, char* argv[]) {
+	int nbthreads = std::thread::hardware_concurrency();
+
 	if (argc < 2) {
 		std::cerr<<"usage: "<<argv[0]<<" <nbthreads>"<<std::endl;
-		// return -1;
+		if (nbthreads == 0) {
+			std::cerr << "unable to get number of threads" << std::endl;
+			return EXIT_FAILURE;
+		} else {
+			std::cerr << "using std::thread::hardware_concurrency to get nbthreads" << std::endl;
+		}
+	} else {
+		nbthreads = std::atoi(argv[1]);
 	}
-
-	int nbthreads = 8; //std::atoi(argv[1]);
 
 	#ifdef CASES_FILE
 		//const char loc[] = "/home/aryan/Projects/ITCS3145/A3/dynamic/cases.txt";
