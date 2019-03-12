@@ -77,36 +77,19 @@ public:
 	}
 };
 
-static std::mutex lock{  };
-static std::vector<std::tuple<int, int, float>> ansVec{ };
+void partial_integrate(func_t functionid, int a, int b, int n, int intensity, int start, int end, JobHandle* jh) {
+	float ban = (b - a) / (float)n;
+	float local_ans{  };
 
-struct IntegrateWork {
-	func_t functionid;
-	int a;
-	int b;
-	int n;
-	int intensity;
-
-	int start;
-	int end;
-
-	JobHandle* jh;
-
-
-	void operator() () {
-		float ban = (b - a) / (float)n;
-		float local_ans{  };
-
-		for (int i = start; i < end; ++i) {
-			float x = a + ((float)i + 0.5) * ban;
-			local_ans += functionid(x, intensity);
-		}
-
-		jh->sync(local_ans);
-		jh->finalize(ban);
-		jh->sub();
+	for (int i = start; i < end; ++i) {
+		float x = a + ((float)i + 0.5) * ban;
+		local_ans += functionid(x, intensity);
 	}
-};
+
+	jh->sync(local_ans);
+	jh->finalize(ban);
+	jh->sub();
+}
 
 
 JobHandle* submit_job(ThreadPoolSchedular& tps, func_t functionid, int a, int b, int n, int gran, int intensity) {
@@ -116,13 +99,13 @@ JobHandle* submit_job(ThreadPoolSchedular& tps, func_t functionid, int a, int b,
 	auto jh = new JobHandle{ };
 	while (start + gran < n) {
 		jh->add();
-		tps.push(IntegrateWork{ functionid, a, b, n, intensity, start, end, jh });
+		tps.push([=]() { partial_integrate( functionid, a, b, n, intensity, start, end, jh ); }); // capture by value
 		start = end;
 		end += gran;
 	}
 
 	jh->add();
-	tps.push(IntegrateWork{ functionid, a, b, n, intensity, start, n, jh });
+	tps.push([=]() { partial_integrate( functionid, a, b, n, intensity, start, end, jh ); });
 
 	return jh;
 }
