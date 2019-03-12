@@ -48,7 +48,7 @@ float f4(float x, int intensity);
 class JobHandle {
 	float answer;
 	std::mutex lock;
-	std::atomic_uint16_t left;
+	std::atomic_uint32_t left;
 
 public:
 	void add() {
@@ -106,7 +106,7 @@ JobHandle* submit_job(ThreadPoolSchedular& tps, func_t functionid, int a, int b,
 	}
 
 	jh->add();
-	tps.push([=]() { partial_integrate( functionid, a, b, n, intensity, start, end, jh ); });
+	tps.push([=]() { partial_integrate( functionid, a, b, n, intensity, start, n, jh ); });
 
 	return jh;
 }
