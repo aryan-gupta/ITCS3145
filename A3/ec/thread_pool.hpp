@@ -5,6 +5,12 @@
 #include <condition_variable>
 #include <atomic>
 
+#define USE_BOOST
+
+#ifdef USE_BOOST
+#include <boost/lockfree/queue.hpp>
+#endif
+
 #include "lockfree_queue.hpp"
 #include "parallel_queue.hpp"
 
@@ -80,7 +86,11 @@ class ThreadPoolSchedular {
 	using func_t = detail::tps_func_wrapper_base*;
 	/// This type must have try_pop - MUST be wait free, IT CANNOT BLOCK or that thread waiting will wait forever if we need to end it
 	/// and must have push
+#ifdef USE_BOOST
+	template <typename T> using queue_t = boost::lockfree::queue<T>;
+#else
 	template <typename T> using queue_t = ari::lockfree_queue<T>;
+#endif
 	template <typename A> using derived_t = detail::tps_func_wrapper<A>;
 
 	std::vector<std::thread> mThreads;
@@ -92,7 +102,12 @@ class ThreadPoolSchedular {
 		// theads to stop
 		while (true) {
 			if (mKill.load()) return { false, callable_t{ nullptr } };
+		#ifdef USE_BOOST
+			func_t func{  };
+			bool success = mQ.pop(func);
+		#else
 			auto [success, func] = mQ.try_pop();
+		#endif
 			if (success) return { true, callable_t{ func } };
 		}
 	}
@@ -109,7 +124,13 @@ class ThreadPoolSchedular {
 public:
 	ThreadPoolSchedular() = delete;
 
-	ThreadPoolSchedular(int nbthreads) : mQ{  }, mKill{ false } {
+	ThreadPoolSchedular(int nbthreads)
+	#ifdef USE_BOOST
+		: mQ{ 128 }
+	#else
+		: mQ{  }
+	#endif
+		, mKill{ false } {
 		while(nbthreads --> 0) {
 			mThreads.emplace_back(thread_loop, std::ref(*this));
 		}
@@ -126,7 +147,11 @@ public:
 	template <typename T>
 	void push(T&& func) {
 		func_t wrapper = new derived_t<T>{ std::forward<T>(func) };
+	#ifdef USE_BOOST
+		while(!mQ.push(wrapper));
+	#else
 		mQ.push(wrapper);
+	#endif
 	}
 
 	void end() {
