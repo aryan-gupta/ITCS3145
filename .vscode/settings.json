@@ -44,6 +44,7 @@
 		"deque": "cpp",
 		"functional": "cpp",
 		"list": "cpp",
-		"iomanip": "cpp"
+		"iomanip": "cpp",
+		"cstring": "cpp"
 	}
 }
