@@ -18,7 +18,7 @@ namespace detail {
 
 /// This class is the base so we can perform some time erasure
 struct tps_func_wrapper_base {
-	virtual ~tps_func_wrapper_base() {  };
+	virtual ~tps_func_wrapper_base() = default;
 	virtual void operator() () = 0;
 };
 
@@ -76,18 +76,35 @@ public:
 /// also takes care of ending the threads when we are done with the program.
 // @todo Allow the user to call the callable with their own variac parameters
 class ThreadPoolSchedular {
-public:
 	using callable_t = detail::tps_callable;
-
-private:
 	using func_t = detail::tps_func_wrapper_base*;
-	using lock_t = std::unique_lock<std::mutex>;
+	/// This type must have try_pop - MUST be wait free, IT CANNOT BLOCK or that thread waiting will wait forever if we need to end it
+	/// and must have push
+	template <typename T> using queue_t = ari::lockfree_queue<T>;
 	template <typename A> using derived_t = detail::tps_func_wrapper<A>;
 
 	std::vector<std::thread> mThreads;
-
-	parallel_queue<func_t> mQ;
+	queue_t<func_t> mQ;
 	std::atomic_bool mKill;
+
+	std::pair<bool, callable_t> pop() {
+		// Continue to try pop until we are successful. If we need to end the threads then tell the
+		// theads to stop
+		while (true) {
+			if (mKill.load()) return { false, callable_t{ nullptr } };
+			auto [success, func] = mQ.try_pop();
+			if (success) return { true, callable_t{ func } };
+		}
+	}
+
+	static void thread_loop(ThreadPoolSchedular& tps) {
+		while(true) {
+			auto [cont, work] = tps.pop();
+			if (cont) work();
+			else break;
+		}
+	}
+
 
 public:
 	ThreadPoolSchedular() = delete;
@@ -98,38 +115,12 @@ public:
 		}
 	}
 
-	static void thread_loop(ThreadPoolSchedular& tps) {
-		while(!tps.mKill.load()) {
-			auto [cont, work] = tps.pop();
-			if (cont) work();
-			else break;
-		}
-	}
-
-	template <typename T>
-	static void master_loop(ThreadPoolSchedular& tps, T* handle) {
-		while (!handle->done) {
-			auto [cont, work] = tps.try_pop();
-			if (cont) work();
-		}
-	}
-
 	~ThreadPoolSchedular() {
 		end();
 		for(auto& t : mThreads) {
 			if (t.joinable())
 				t.join();
 		}
-	}
-
-	std::pair<bool, callable_t> pop() {
-		auto [success, func] = mQ.try_pop( [this](){ return !mKill.load(); } );
-		return { success, callable_t{ func } };
-	}
-
-	std::pair<bool, callable_t> try_pop() {
-		auto [success, func] = mQ.try_pop();
-		return { success, callable_t{ func } };
 	}
 
 	template <typename T>
