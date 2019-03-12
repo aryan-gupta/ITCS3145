@@ -137,15 +137,11 @@ public:
 	}
 
 	~ThreadPoolSchedular() {
-		end();
-		for(auto& t : mThreads) {
-			if (t.joinable())
-				t.join();
-		}
+		join();
 	}
 
 	template <typename T>
-	void push(T&& func) {
+	void post(T&& func) {
 		func_t wrapper = new derived_t<T>{ std::forward<T>(func) };
 	#ifdef USE_BOOST
 		while(!mQ.push(wrapper));
@@ -154,8 +150,12 @@ public:
 	#endif
 	}
 
-	void end() {
+	void join() {
 		mKill = true;
+		for(auto& t : mThreads) {
+			if (t.joinable())
+				t.join();
+		}
 	}
 
 };

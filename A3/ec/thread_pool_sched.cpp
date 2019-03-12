@@ -27,6 +27,8 @@
 
 #include "thread_pool.hpp"
 
+#include <boost/asio/thread_pool.hpp>
+
 using hrc = std::chrono::high_resolution_clock;
 
 // #define CASES_FILE
@@ -93,20 +95,21 @@ void partial_integrate(func_t functionid, int a, int b, int n, int intensity, in
 }
 
 
-JobHandle* submit_job(ThreadPoolSchedular& tps, func_t functionid, int a, int b, int n, int gran, int intensity) {
+template <typename T>
+JobHandle* submit_job(T& tps, func_t functionid, int a, int b, int n, int gran, int intensity) {
 	int start = 0;
 	int end = gran;
 
 	auto jh = new JobHandle{ };
 	while (start + gran < n) {
 		jh->add();
-		tps.push([=]() { partial_integrate( functionid, a, b, n, intensity, start, end, jh ); }); // capture by value
+		tps.post([=]() { partial_integrate( functionid, a, b, n, intensity, start, end, jh ); }); // capture by value
 		start = end;
 		end += gran;
 	}
 
 	jh->add();
-	tps.push([=]() { partial_integrate( functionid, a, b, n, intensity, start, n, jh ); });
+	tps.post([=]() { partial_integrate( functionid, a, b, n, intensity, start, n, jh ); });
 
 	return jh;
 }
@@ -213,7 +216,7 @@ int main(int argc, char* argv[]) {
 		std::this_thread::yield();
 	}
 
-	tps.end();
+	tps.join();
 
 	std::cout << "[I] Jobs finished." << std::endl;
 
