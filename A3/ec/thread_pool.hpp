@@ -12,7 +12,7 @@
 // so I took some inspiration from std::any. The gist of this code is that there is a base class with a v-table
 // for operator(), there is a templated derived class called tps_func_wrapper. Becuase this class is templated,
 // we can erase the type of the template because the only thing we want to do with this is call the callable.
-// To farther abstract the internals, I created a TPS_callable that will make sure that the memory gets properly
+// To farther abstract the internals, I created a tps_callable that will make sure that the memory gets properly
 // released and the user can call an object rather than call a pointer to the object.
 namespace detail {
 
@@ -41,20 +41,21 @@ public:
 	}
 };
 
+
 /// Class to store and release the memory of a callable
-class TPS_callable {
+class tps_callable {
 	tps_func_wrapper_base* mFunc;
 
 public:
-	TPS_callable() = delete;
-	TPS_callable(const TPS_callable&) = delete;
-	TPS_callable(TPS_callable&& o) : mFunc{ o.mFunc } {
+	tps_callable() = delete;
+	tps_callable(const tps_callable&) = delete;
+	tps_callable(tps_callable&& o) : mFunc{ o.mFunc } {
 		o.mFunc = nullptr;
 	}
 
-	TPS_callable(tps_func_wrapper_base* func) : mFunc{ func } {  }
+	tps_callable(tps_func_wrapper_base* func) : mFunc{ func } {  }
 
-	~TPS_callable() {
+	~tps_callable() {
 		if (mFunc != nullptr)
 			delete mFunc;
 	}
@@ -76,7 +77,7 @@ public:
 // @todo Allow the user to call the callable with their own variac parameters
 class ThreadPoolSchedular {
 public:
-	using callable_t = detail::TPS_callable;
+	using callable_t = detail::tps_callable;
 
 private:
 	using func_t = detail::tps_func_wrapper_base*;
