@@ -27,11 +27,9 @@
 
 #include "thread_pool.hpp"
 
-#include <boost/asio/thread_pool.hpp>
-
 using hrc = std::chrono::high_resolution_clock;
 
-// #define CASES_FILE
+#define CASES_FILE
 
 using func_t = float (*)(float, int);
 #ifdef __cplusplus
@@ -181,9 +179,9 @@ int main(int argc, char* argv[]) {
 		std::vector<std::tuple<func_t, int, int, int, float>> todo{  };
 		// Tuple is functionid, n, intensity, gran, answer
 		// todo.emplace_back(f1, 1'000, 1'0000, 100, 50);
-		todo.emplace_back(f1, 100'000, 1, 10, 50);
-		todo.emplace_back(f2, 1'000'000, 10, 10'000, 333.333);
-		todo.emplace_back(f2, 1'000'000, 10, 100, 333.333);
+		todo.emplace_back(f1, 100'007, 1, 10, 50);
+		//todo.emplace_back(f2, 1'000'000, 10, 10'000, 333.333);
+		//todo.emplace_back(f2, 1'000'000, 10, 100, 333.333);
 		// todo.emplace_back(f3, 1'000'000, 10, 10'000, 1.83908);
 		// todo.emplace_back(f4, 1'000'000, 10, 10'000, 12.1567);
 
