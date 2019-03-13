@@ -248,12 +248,12 @@ JobHandle* merge_sort_threadpool_sort(ThreadPoolSchedular& tps, I begin, I end, 
 
 	for (; it < end - gran; it += gran) {
 		JobHandle* handle = new JobHandle{ false };
-		tps.push(MergeSortWork<I, O>{ it, it + gran, op, handle });
+		tps.post(MergeSortWork<I, O>{ it, it + gran, op, handle });
 		jobs.emplace_back(it, it + gran, handle);
 	}
 
 	JobHandle* handle = new JobHandle{ false };
-	tps.push(MergeSortWork<I, O>{ it, end, op, handle });
+	tps.post(MergeSortWork<I, O>{ it, end, op, handle });
 	jobs.emplace_back(it, end, handle);
 
 	while (jobs.size() > 1) {
@@ -262,7 +262,7 @@ JobHandle* merge_sort_threadpool_sort(ThreadPoolSchedular& tps, I begin, I end, 
 
 		if (m1 == m2) {
 			handle = new JobHandle{ false };
-			tps.push(MergeSortMergeWork<I, O>{ s, m1, e, op, left, right, handle });
+			tps.post(MergeSortMergeWork<I, O>{ s, m1, e, op, left, right, handle });
 			jobs.emplace_back(s, e, handle);
 			jobs.pop_front();
 		} else {
@@ -276,7 +276,9 @@ template <typename I, typename O = std::less<typename I::value_type>,
           typename = std::enable_if_t<std::is_base_of<std::forward_iterator_tag, typename std::iterator_traits<I>::iterator_category>::value>>
 void merge_sort(I begin, I end, ThreadPoolSchedular& tps, O op = {  }) {
 	auto master_handle = merge_sort_threadpool_sort(tps, begin, end, op);
-	ThreadPoolSchedular::master_loop(tps, master_handle);
+	while (!master_handle->done.load()) {
+		std::this_thread::yield();
+	}
 }
 
 } // end namespace parallel_threadpool
@@ -300,101 +302,48 @@ auto create_array_to_sort(int MAX = 107) {
 	return data;
 }
 
+/// Measures the exec time of a function and returns the result and time in seconds
+/// @param func The function to call
+/// @param args The arguments to pass into the function
+/// @return A std::pair containing the time in seconds and the result
+template <typename F, typename... A>
+auto measure_func(F func, A... args) -> std::pair<float, typename std::result_of<F>::type> {
+  auto start = clk::now();
+  auto result = func( std::forward<A>(args)... );
+  auto end = clk::now();
+  std::chrono::duration<float> elapse = end - start;
+  return { elapse.count(), result };
+}
+
+
+/// Measures the exec time of a function
+/// @param func The function to call
+/// @param args The arguments to pass into the function
+/// @return The execution time in seconds
+template<typename F, typename... A>
+float measure_func(F func, A... args) {
+  auto start = clk::now();
+  func( std::forward<A>(args)... );
+  auto end = clk::now();
+  std::chrono::duration<float> elapse = end - start;
+  return elapse.count();
+}
+
+
 int main() {
-
-// Running ThreadPool Sort 1'000 times without restarting threads...
-// Threadpool took 274.731
-
-// Running ThreadPool Sort 1'000 times reastarting threads each time...
-// Threadpool took 303.268
-{
-	ThreadPoolSchedular tps{ 8 };
-	auto sort_data = create_array_to_sort();
-	parallel_threadpool::merge_sort(sort_data.begin(), sort_data.end(), tps);
-}
-{
-	std::cout << "Running ThreadPool Sort 1'000 times without restarting threads..." << std::endl;
-	std::chrono::duration<double> elapse{ 0 };
-	ThreadPoolSchedular tps{ 8 };
-
-	for(int i = 0; i < 10000; ++i)
 	{
-		auto sort_data = create_array_to_sort(1000);
-		auto timeStart = clk::now();
-		parallel_threadpool::merge_sort(sort_data.begin(), sort_data.end(), tps);
-		auto timeEnd = clk::now();
-		if (std::is_sorted(sort_data.begin(), sort_data.end())) {
-			std::chrono::duration<double> tmp { timeEnd - timeStart };
-			// std::cout << i << "  " << tmp.count() << std::endl;
-			elapse += tmp;
-		} else {
-			std::cout << "Wrong..." << std::endl;
-			// print(sort_data.begin(), sort_data.end());
-		}
+		ThreadPoolSchedular tps{ 7 };
+		auto data = create_array_to_sort();
+		float elapse = measure_func([&](int){ parallel_threadpool::merge_sort(data.begin(), data.end(), tps); }, 0);
+		if (std::is_sorted(data.begin(), data.end()))
+			std::cout << "Threadpool took " << elapse << std::endl;
+		tps.join();
 	}
-	float timeTaken = elapse.count();
-	std::cout << "Threadpool took " << timeTaken << std::endl << std::endl;
-}
-{
-	std::cout << "Running ThreadPool Sort 1'000 times reastarting threads each time..." << std::endl;
-	std::chrono::duration<double> elapse{ 0 };
 
-
-	for(int i = 0; i < 10000; ++i)
 	{
-		auto sort_data = create_array_to_sort(1000);
-		auto timeStart = clk::now();
-		ThreadPoolSchedular tps{ 8 };
-		parallel_threadpool::merge_sort(sort_data.begin(), sort_data.end(), tps);
-		auto timeEnd = clk::now();
-		if (std::is_sorted(sort_data.begin(), sort_data.end())) {
-			std::chrono::duration<double> tmp { timeEnd - timeStart };
-			// std::cout << i << "  " << tmp.count() << std::endl;
-			elapse += tmp;
-		} else {
-			std::cout << "Wrong..." << std::endl;
-			// print(sort_data.begin(), sort_data.end());
-		}
+		auto data = create_array_to_sort();
+		float elapse = measure_func([&](int){ serial::merge_sort(data.begin(), data.end()); }, 0);
+		if (std::is_sorted(data.begin(), data.end()))
+			std::cout << "Serial took " << elapse << std::endl;
 	}
-	float timeTaken = elapse.count();
-	std::cout << "Threadpool took " << timeTaken << std::endl << std::endl;
-}
-
-return EXIT_SUCCESS;
-
-
-// for (int i = 1; i < 10000; ++i)
-// Threadpool took 0.00141681
-// 1 1 2 5 6 6 7 8 8 10 10 11 12 14 12 14 15
-// Serial     took 0.000382308
-
-{
-	auto sort_data = create_array_to_sort();
-//	print(sort_data.begin(), sort_data.end());
-	auto timeStart = clk::now();
-	parallel_static::merge_sort(sort_data.begin(), sort_data.end(), 8);
-	auto timeEnd = clk::now();
-//	print(sort_data.begin(), sort_data.end());
-	std::chrono::duration<double> elapse{ timeEnd - timeStart };
-	float timeTaken = elapse.count();
-	if (std::is_sorted(sort_data.begin(), sort_data.end()))
-		std::cout << "Parallel   took " << timeTaken << std::endl;
-	// else
-	// 	print(sort_data.begin(), sort_data.end());
-
-}
-
-{
-	auto sort_data = create_array_to_sort();
-//	print(sort_data.begin(), sort_data.end());
-	auto timeStart = clk::now();
-	serial::merge_sort(sort_data.begin(), sort_data.end());
-	auto timeEnd = clk::now();
-//	print(sort_data.begin(), sort_data.end());
-	std::chrono::duration<double> elapse{ timeEnd - timeStart };
-	float timeTaken = elapse.count();
-	if (std::is_sorted(sort_data.begin(), sort_data.end()))
-		std::cout << "Serial     took " << timeTaken << std::endl;
-}
-
 }
