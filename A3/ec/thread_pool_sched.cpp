@@ -239,11 +239,10 @@ int main(int argc, char* argv[]) {
 		for (auto [handle, correct] : jobs) {
 			if (!handle->done()) {
 				done = false;
-			} else {
 				++count;
 			}
 		}
-		std::cout << "\r[I] Waiting on " << count << " jobs";
+		std::cout << "\r[I] Waiting on " << count << " jobs    ";
 		std::cout.flush(); // https://stackoverflow.com/questions/14539867/
 		std::this_thread::yield();
 	}
