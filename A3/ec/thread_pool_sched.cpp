@@ -62,7 +62,7 @@ public:
 	}
 
 	void sync(float local) {
-		std::lock_guard { lock };
+		std::lock_guard lk { lock };
 		answer += local;
 	}
 
