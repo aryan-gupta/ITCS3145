@@ -179,12 +179,12 @@ JobHandle* merge_sort_threadpool_sort(ThreadPoolSchedular& tps, I begin, I end, 
 
 	for (; it < end - gran; it += gran) {
 		JobHandle* handle = new JobHandle{ false };
-		tps.push(MergeSortWork<I, O>{ it, it + gran, op, handle });
+		tps.post(MergeSortWork<I, O>{ it, it + gran, op, handle });
 		jobs.emplace_back(it, it + gran, handle);
 	}
 
 	JobHandle* handle = new JobHandle{ false };
-	tps.push(MergeSortWork<I, O>{ it, end, op, handle });
+	tps.post(MergeSortWork<I, O>{ it, end, op, handle });
 	jobs.emplace_back(it, end, handle);
 
 	while (jobs.size() > 1) {
@@ -193,7 +193,7 @@ JobHandle* merge_sort_threadpool_sort(ThreadPoolSchedular& tps, I begin, I end, 
 
 		if (m1 == m2) {
 			handle = new JobHandle{ false };
-			tps.push(MergeSortMergeWork<I, O>{ s, m1, e, op, left, right, handle });
+			tps.post(MergeSortMergeWork<I, O>{ s, m1, e, op, left, right, handle });
 			jobs.emplace_back(s, e, handle);
 			jobs.pop_front();
 		} else {
@@ -207,8 +207,7 @@ template <typename I, typename O = std::less<typename I::value_type>,
           typename = std::enable_if_t<std::is_base_of<std::random_access_iterator_tag, typename std::iterator_traits<I>::iterator_category>::value>>
 void merge_sort(I begin, I end, ThreadPoolSchedular& tps, O op = {  }) {
 	auto master_handle = merge_sort_threadpool_sort(tps, begin, end, op);
-	// ThreadPoolSchedular::master_loop(tps, master_handle);
-	while (!master_handle->done) {
+	while (!master_handle->done.load()) {
 		std::this_thread::yield();
 	}
 }
@@ -234,32 +233,48 @@ auto create_array_to_sort(int MAX = 100'000) {
 	return data;
 }
 
+/// Measures the exec time of a function and returns the result and time in seconds
+/// @param func The function to call
+/// @param args The arguments to pass into the function
+/// @return A std::pair containing the time in seconds and the result
+template <typename F, typename... A>
+auto measure_func(F func, A... args) -> std::pair<float, typename std::result_of<F>::type> {
+  auto start = clk::now();
+  auto result = func( std::forward<A>(args)... );
+  auto end = clk::now();
+  std::chrono::duration<float> elapse = end - start;
+  return { elapse.count(), result };
+}
+
+
+/// Measures the exec time of a function
+/// @param func The function to call
+/// @param args The arguments to pass into the function
+/// @return The execution time in seconds
+template<typename F, typename... A>
+float measure_func(F func, A... args) {
+  auto start = clk::now();
+  func( std::forward<A>(args)... );
+  auto end = clk::now();
+  std::chrono::duration<float> elapse = end - start;
+  return elapse.count();
+}
+
+
 int main() {
-// Threadpool merge sort
-{
-	ThreadPoolSchedular tps{ 8 };
-	auto sort_data = create_array_to_sort();
-	auto timeStart = clk::now();
-	parallel_threadpool::merge_sort(sort_data.begin(), sort_data.end(), tps);
-	auto timeEnd = clk::now();
-	std::chrono::duration<double> elapse{ timeEnd - timeStart };
-	float timeTaken = elapse.count();
-	if (std::is_sorted(sort_data.begin(), sort_data.end()))
-		std::cout << "Threadpool took " << timeTaken << std::endl;
-}
+	{
+		ThreadPoolSchedular tps{ 7 };
+		auto data = create_array_to_sort();
+		float elapse = measure_func([&](int){ parallel_threadpool::merge_sort(data.begin(), data.end(), tps); }, 0);
+		if (std::is_sorted(data.begin(), data.end()))
+			std::cout << "Threadpool took " << elapse << std::endl;
+		tps.join();
+	}
 
-// Serial sort
-{
-	auto sort_data = create_array_to_sort();
-//	print(sort_data.begin(), sort_data.end());
-	auto timeStart = clk::now();
-	serial::merge_sort(sort_data.begin(), sort_data.end());
-	auto timeEnd = clk::now();
-//	print(sort_data.begin(), sort_data.end());
-	std::chrono::duration<double> elapse{ timeEnd - timeStart };
-	float timeTaken = elapse.count();
-	if (std::is_sorted(sort_data.begin(), sort_data.end()))
-		std::cout << "Serial     took " << timeTaken << std::endl;
-}
-
+	{
+		auto data = create_array_to_sort();
+		float elapse = measure_func([&](int){ serial::merge_sort(data.begin(), data.end()); }, 0);
+		if (std::is_sorted(data.begin(), data.end()))
+			std::cout << "Serial took " << elapse << std::endl;
+	}
 }

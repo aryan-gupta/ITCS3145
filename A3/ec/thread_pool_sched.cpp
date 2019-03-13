@@ -29,6 +29,9 @@
 
 using hrc = std::chrono::high_resolution_clock;
 
+// Define to use cases file or manually submit jobs. Using the cases file
+// usually leads this code to run in about 3-4 min using 7 threads
+#define CASES_FILE
 
 using func_t = float (*)(float, int);
 #ifdef __cplusplus
@@ -44,71 +47,98 @@ float f4(float x, int intensity);
 }
 #endif
 
-struct JobHandle {
-	float answer = 0;
-	std::mutex lock;
-	std::atomic_uint16_t left;
 
+/// A JobHandle stores the information for one integrate job. The Job holds the
+/// number of tasks left. Once there is no tasks left for one integration job, the
+/// answer is ready. The answer is protected by a mutex and the ban must be calculated
+/// at the time of creation of the job
+class JobHandle {
+	float answer;
+	const float ban;
+	std::mutex lock;
+	std::atomic_uint32_t left;
+
+public:
+	JobHandle() = delete;
+	JobHandle(float b) : answer{  }, ban{ b }, lock{  }, left{  } {  }
+
+	/// Increase the number of tasks to finish this job
+	void add() {
+		left.fetch_add(1);
+	}
+
+	/// Decrease the number of tasks to finish this job
+	void sub() {
+		left.fetch_sub(1);
+	}
+
+	/// Syncs a task with the answer
+	void sync(float local) {
+		std::lock_guard lk { lock };
+		answer += local;
+	}
+
+	/// returns if the Jobs is finished or not
 	bool done() {
 		return left == 0;
 	}
-};
 
-struct IntegrateWork {
-	func_t functionid;
-	int a;
-	int b;
-	int n;
-	int intensity;
-
-	int start;
-	int end;
-
-	JobHandle* jh;
-
-
-	void operator() () {
-		float ban = (b - a) / (float)n;
-		float local_ans{  };
-		for (int i = start; i < end; ++i) {
-			float x = a + ((float)i + 0.5) * ban;
-			local_ans += functionid(x, intensity);
-		}
-
-		{
-			std::lock_guard { jh->lock };
-			jh->answer += local_ans;
-		}
-
-		if (jh->left.load() == 1) { // if we are the last thread
-			std::lock_guard { jh->lock };
-			jh->answer *= (b - a) / (float)n;
-		}
-
-		jh->left.fetch_sub(1);
+	/// Recives the answer. Is undefined is the job is not done.
+	/// @note not thread-safe
+	float get() {
+		return answer * ban;
 	}
 };
 
 
-JobHandle* submit_job(ThreadPoolSchedular& tps, func_t functionid, int a, int b, int n, int gran, int intensity) {
+/// Partially integrates a function. Only integrates from start to finish of n values.
+/// @param functionid The function to integrate
+/// @param a The upper bound of the integral
+/// @param b The lower bound of the integral
+/// @param n An integer which is the number of points to compute the approximation of the integral
+/// @param intensity An integer which is the second parameter to give the the function to integrate
+/// @param start The start of \p n to integrate from
+/// @param end The end of \p n to integrate too
+/// @param jh The JobHandle for this job
+void partial_integrate(func_t functionid, int a, int b, int n, int intensity, int start, int end, JobHandle* jh) {
+	float ban = (b - a) / (float)n;
+	float local_ans{  };
+
+	for (int i = start; i < end; ++i) {
+		float x = a + ((float)i + 0.5) * ban;
+		local_ans += functionid(x, intensity);
+	}
+
+	jh->sync(local_ans);
+	jh->sub();
+}
+
+
+/// Submits the integration job to \p tps using the \p gran as the basis of how to split in to
+/// tasks. I had to make this a template because I was using boost::asio::thread_pool to do
+/// some bug hunting.
+template <typename T>
+JobHandle* submit_job(T& tps, func_t functionid, int a, int b, int n, int gran, int intensity) {
 	int start = 0;
 	int end = gran;
 
-	auto jh = new JobHandle{ };
+	auto jh = new JobHandle{ (b - a) / (float)n };
 	while (start + gran < n) {
-		jh->left.fetch_add(1);
-		tps.push(IntegrateWork{ functionid, a, b, n, intensity, start, end, jh });
+		jh->add();
+		tps.post([=]() { partial_integrate( functionid, a, b, n, intensity, start, end, jh ); }); // capture by value
 		start = end;
 		end += gran;
 	}
 
-	jh->left.fetch_add(1);
-	tps.push(IntegrateWork{ functionid, a, b, n, intensity, start, n, jh });
+	jh->add();
+	tps.post([=]() { partial_integrate( functionid, a, b, n, intensity, start, n, jh ); });
 
 	return jh;
 }
 
-// Tuple is functionid, n, intensity, gran, answer
+
+// Tuple is functionid, n, intensity, gran, answer. Too lazy to create custom object (bad idea, I know)
+/// Recives integration jobs from a file
 std::vector<std::tuple<func_t, int, int, int, float>> get_jobs(std::string_view fname) {
 	std::ifstream file{ fname.data() };
 	std::vector<std::tuple<func_t, int, int, int, float>> ret_val;
@@ -153,19 +183,37 @@ std::vector<std::tuple<func_t, int, int, int, float>> get_jobs(std::string_view 
 
 
 int main(int argc, char* argv[]) {
-	//const char loc[] = "/home/aryan/Projects/ITCS3145/A3/dynamic/cases.txt";
-	const char loc[] = "../dynamic/cases.txt";
+	int nbthreads = std::thread::hardware_concurrency();
 
 	if (argc < 2) {
 		std::cerr<<"usage: "<<argv[0]<<" <nbthreads>"<<std::endl;
-		return -1;
+		if (nbthreads == 0) {
+			std::cerr << "unable to get number of threads" << std::endl;
+			return EXIT_FAILURE;
+		} else {
+			std::cerr << "using std::thread::hardware_concurrency to get nbthreads" << std::endl;
+		}
+	} else {
+		nbthreads = std::atoi(argv[1]);
 	}
 
-	int nbthreads = std::atoi(argv[1]);
+	#ifdef CASES_FILE
+		//const char loc[] = "/home/aryan/Projects/ITCS3145/A3/dynamic/cases.txt";
+		const char loc[] = "../dynamic/cases.txt";
+		std::cout << "[I] Pulling Jobs from cases.txt..."<< std::endl;
+		auto todo = get_jobs(loc);
+	#else
+		std::cout << "[I] Manually adding jobs..."<< std::endl;
+		std::vector<std::tuple<func_t, int, int, int, float>> todo{  };
+		// Tuple is functionid, n, intensity, gran, answer
+		// todo.emplace_back(f1, 1'000, 1'0000, 100, 50);
+		todo.emplace_back(f1, 100'007, 1, 10, 50);
+		//todo.emplace_back(f2, 1'000'000, 10, 10'000, 333.333);
+		//todo.emplace_back(f2, 1'000'000, 10, 100, 333.333);
+		// todo.emplace_back(f3, 1'000'000, 10, 10'000, 1.83908);
+		// todo.emplace_back(f4, 1'000'000, 10, 10'000, 12.1567);
 
-	std::cout << "[I] Pulling Jobs from cases.txt..."<< std::endl;
-	auto todo = get_jobs(loc);
-
+	#endif
 	std::cout << "[I] Starting ThreadPool threads (" << nbthreads << " threads)" << std::endl;
 	ThreadPoolSchedular tps{ nbthreads };
 
@@ -177,28 +225,38 @@ int main(int argc, char* argv[]) {
 	for (auto [f, n, intensity, gran, answer] : todo) {
 		auto jh = submit_job(tps, f, a, b, n, gran, intensity);
 		jobs.emplace_back(jh, answer);
+		std::cout << "\r[I] Total Jobs posted: " << jobs.size();
+		std::cout.flush();
 	}
+	std::cout << std::endl;
 
-	std::cout << "[I] Waiting for jobs to finish... Total Jobs posted: " << jobs.size() << std::endl;
+	std::cout << "[I] Waiting for jobs to finish..." << std::endl;
 
 	bool done = false;
 	while (!done) {
 		done = true;
+		unsigned count{  };
 		for (auto [handle, correct] : jobs) {
 			if (!handle->done()) {
 				done = false;
+				++count;
 			}
 		}
+		std::cout << "\r[I] Waiting on " << count << " jobs    ";
+		std::cout.flush(); // https://stackoverflow.com/questions/14539867/
+		std::this_thread::yield();
 	}
+	std::cout << std::endl;
 
-	tps.end();
+	tps.join();
 
 	std::cout << "[I] Jobs finished." << std::endl;
 
 	int nbcorrect = 0;
 	for (auto [handle, correct] : jobs) {
-		if (std::abs(handle->answer - correct) > 0.001 ) {
-			std::cout << "[E] Incorrect: " << handle->answer << " != " << correct << std::endl;
+		if (std::abs(handle->get() - correct) > 0.1 ) {
+			std::cout << "[E] Incorrect: " << handle->get() << " != " << correct << std::endl;
+			delete handle;
 		} else {
 			++nbcorrect;
 		}

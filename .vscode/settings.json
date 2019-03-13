@@ -44,7 +44,16 @@
 		"deque": "cpp",
 		"functional": "cpp",
 		"list": "cpp",
+		"iomanip": "cpp",
 		"cstring": "cpp",
-		"iomanip": "cpp"
+		"csignal": "cpp",
+		"cstddef": "cpp",
+		"hash_map": "cpp",
+		"bitset": "cpp",
+		"codecvt": "cpp",
+		"complex": "cpp",
+		"future": "cpp",
+		"typeindex": "cpp",
+		"variant": "cpp"
 	}
 }
