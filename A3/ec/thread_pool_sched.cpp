@@ -257,6 +257,7 @@ int main(int argc, char* argv[]) {
 	for (auto [handle, correct] : jobs) {
 		if (std::abs(handle->get() - correct) > 0.1 ) {
 			std::cout << "[E] Incorrect: " << handle->get() << " != " << correct << std::endl;
+			delete handle;
 		} else {
 			++nbcorrect;
 		}
