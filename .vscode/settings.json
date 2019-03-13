@@ -45,6 +45,15 @@
 		"functional": "cpp",
 		"list": "cpp",
 		"iomanip": "cpp",
-		"cstring": "cpp"
+		"cstring": "cpp",
+		"csignal": "cpp",
+		"cstddef": "cpp",
+		"hash_map": "cpp",
+		"bitset": "cpp",
+		"codecvt": "cpp",
+		"complex": "cpp",
+		"future": "cpp",
+		"typeindex": "cpp",
+		"variant": "cpp"
 	}
 }
