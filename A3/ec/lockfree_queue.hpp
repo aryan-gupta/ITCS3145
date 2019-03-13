@@ -119,7 +119,7 @@ public:
 	using size_type = std::size_t;
 	using difference_type = std::ptrdiff_t;
 
-	lockfree_queue() : mHead{ new_node() }, mTail{ mHead }, mAlloc{ } { }
+	lockfree_queue() : mHead{ new_node() }, mTail{ mHead.load() }, mAlloc{ } { }
 
 
 	/// Destroys the queue, pops all the elements out of the queue. Would be a smart idea to
