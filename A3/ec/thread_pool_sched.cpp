@@ -49,10 +49,14 @@ float f4(float x, int intensity);
 
 class JobHandle {
 	float answer;
+	const float ban;
 	std::mutex lock;
 	std::atomic_uint32_t left;
 
 public:
+	JobHandle() = delete;
+	JobHandle(float b) : answer{  }, ban{ b }, lock{  }, left{  } {  }
+
 	void add() {
 		left.fetch_add(1);
 	}
@@ -66,17 +70,12 @@ public:
 		answer += local;
 	}
 
-	void finalize(float ban) {
-		if (left.load() == 1)
-			answer *= ban;
-	}
-
 	bool done() {
 		return left == 0;
 	}
 
 	float get() {
-		return answer;
+		return answer * ban;
 	}
 };
 
@@ -90,7 +89,6 @@ void partial_integrate(func_t functionid, int a, int b, int n, int intensity, in
 	}
 
 	jh->sync(local_ans);
-	jh->finalize(ban);
 	jh->sub();
 }
 
@@ -100,7 +98,7 @@ JobHandle* submit_job(T& tps, func_t functionid, int a, int b, int n, int gran, 
 	int start = 0;
 	int end = gran;
 
-	auto jh = new JobHandle{ };
+	auto jh = new JobHandle{ (b - a) / (float)n };
 	while (start + gran < n) {
 		jh->add();
 		tps.post([=]() { partial_integrate( functionid, a, b, n, intensity, start, end, jh ); }); // capture by value
