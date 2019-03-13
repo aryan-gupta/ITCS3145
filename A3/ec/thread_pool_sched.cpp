@@ -29,6 +29,8 @@
 
 using hrc = std::chrono::high_resolution_clock;
 
+// Define to use cases file or manually submit jobs. Using the cases file
+// usually leads this code to run in about 3-4 min using 7 threads
 #define CASES_FILE
 
 using func_t = float (*)(float, int);
@@ -45,6 +47,11 @@ float f4(float x, int intensity);
 }
 #endif
 
+
+/// A JobHandle stores the information for one integrate job. The Job holds the
+/// number of tasks left. Once there is no tasks left for one integration job, the
+/// answer is ready. The answer is protected by a mutex and the ban must be calculated
+/// at the time of creation of the job
 class JobHandle {
 	float answer;
 	const float ban;
@@ -55,28 +62,44 @@ public:
 	JobHandle() = delete;
 	JobHandle(float b) : answer{  }, ban{ b }, lock{  }, left{  } {  }
 
+	/// Increase the number of tasks to finish this job
 	void add() {
 		left.fetch_add(1);
 	}
 
+	/// Decrease the number of tasks to finish this job
 	void sub() {
 		left.fetch_sub(1);
 	}
 
+	/// Syncs a task with the answer
 	void sync(float local) {
 		std::lock_guard lk { lock };
 		answer += local;
 	}
 
+	/// returns if the Jobs is finished or not
 	bool done() {
 		return left == 0;
 	}
 
+	/// Recives the answer. Is undefined is the job is not done.
+	/// @note not thread-safe
 	float get() {
 		return answer * ban;
 	}
 };
 
+
+/// Partially integrates a function. Only integrates from start to finish of n values.
+/// @param functionid The function to integrate
+/// @param a The upper bound of the integral
+/// @param b The lower bound of the integral
+/// @param n An integer which is the number of points to compute the approximation of the integral
+/// @param intensity An integer which is the second parameter to give the the function to integrate
+/// @param start The start of \p n to integrate from
+/// @param end The end of \p n to integrate too
+/// @param jh The JobHandle for this job
 void partial_integrate(func_t functionid, int a, int b, int n, int intensity, int start, int end, JobHandle* jh) {
 	float ban = (b - a) / (float)n;
 	float local_ans{  };
@@ -91,6 +114,9 @@ void partial_integrate(func_t functionid, int a, int b, int n, int intensity, in
 }
 
 
+/// Submits the integration job to \p tps using the \p gran as the basis of how to split in to
+/// tasks. I had to make this a template because I was using boost::asio::thread_pool to do
+/// some bug hunting.
 template <typename T>
 JobHandle* submit_job(T& tps, func_t functionid, int a, int b, int n, int gran, int intensity) {
 	int start = 0;
@@ -110,7 +136,9 @@ JobHandle* submit_job(T& tps, func_t functionid, int a, int b, int n, int gran, 
 	return jh;
 }
 
-// Tuple is functionid, n, intensity, gran, answer
+
+// Tuple is functionid, n, intensity, gran, answer. Too lazy to create custom object (bad idea, I know)
+/// Recives integration jobs from a file
 std::vector<std::tuple<func_t, int, int, int, float>> get_jobs(std::string_view fname) {
 	std::ifstream file{ fname.data() };
 	std::vector<std::tuple<func_t, int, int, int, float>> ret_val;
