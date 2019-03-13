@@ -201,20 +201,29 @@ int main(int argc, char* argv[]) {
 	for (auto [f, n, intensity, gran, answer] : todo) {
 		auto jh = submit_job(tps, f, a, b, n, gran, intensity);
 		jobs.emplace_back(jh, answer);
+		std::cout << "\r[I] Total Jobs posted: " << jobs.size();
+		std::cout.flush();
 	}
+	std::cout << std::endl;
 
-	std::cout << "[I] Waiting for jobs to finish... Total Jobs posted: " << jobs.size() << std::endl;
+	std::cout << "[I] Waiting for jobs to finish..." << std::endl;
 
 	bool done = false;
 	while (!done) {
 		done = true;
+		unsigned count{  };
 		for (auto [handle, correct] : jobs) {
 			if (!handle->done()) {
 				done = false;
+			} else {
+				++count;
 			}
 		}
+		std::cout << "\r[I] Waiting on " << count << " jobs";
+		std::cout.flush(); // https://stackoverflow.com/questions/14539867/
 		std::this_thread::yield();
 	}
+	std::cout << std::endl;
 
 	tps.join();
 
