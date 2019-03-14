@@ -1,18 +1,8 @@
-/// I just want to take a moment to congratulate myself because this code not only compiled on the second
-/// try but it runs without bugs (so far). This seems too good to be true.
-/// ^ LIES, LIES I TELL YOU. the assignment is past due, but I still want this to work.
-/// I decided that I am too dumb to figure this out myself. To the interwebs...
-/// http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.53.8674&rep=rep1&type=pdf
-/// ^ this impl doesnt really work very well. The issue with this is that it implies that
-/// when we pop an item, we leave a copy of it in the head, that means we dont have 'ownership'
-/// of the node. The responsibility of cleanup is left to the next thread that pops, and I dont
-/// like it. I will still try to use this and see if I can make is efficient
-/// After much research, I was unable to find a practicle impl. Im probs going to have to
-/// use this and modify it a bit to suit my tastes.
-/// http://blog.shealevy.com/2015/04/23/use-after-free-bug-in-maged-m-michael-and-michael-l-scotts-non-blocking-concurrent-queue-algorithm/
-/// https://stackoverflow.com/questions/40818465/explain-michael-scott-lock-free-queue-alorigthm
-/// Haha After 3 weeks, I finally got this working. MUAUAUAUA. It is non-blocking, and lock-free.
-/// Im happy, the impl is my own (with inspiration from above resources).
+/// An wait-free MTMC queue.
+///     - T must be default construtable
+///     - If T does not have a nothrow move/copy constructable/assignable
+///       semantics, then smart_ptr semantics must be used
+///     - All smart_ptr objects must be destroyed BEFORE the queue is destroyed
 
 #include <atomic>
 #include <memory>
@@ -279,13 +269,10 @@ class lockfree_queue {
 			if (mHead.compare_exchange_weak(head, head->next)) {
 				// if we get the dummy then we want to clear the status variable and return nullptr
 				// because we couldn't pop out a valid node.
-				if (head == mDummy) {
-					mDummy->next = nullptr;
-					mHasDummy.clear();
-					return nullptr;
-				} else {
-					return head;
-				}
+				if (head != mDummy) return head;
+
+				mDummy->next = nullptr;
+				mHasDummy.clear();
 			}
 			return nullptr;
 		}
@@ -323,16 +310,17 @@ class lockfree_queue {
 
 
 public:
+	// see https://en.cppreference.com/w/cpp/container/queue
 	using value_type = T;
 	using reference = T&;
 	using const_reference = const T&;
 	using allocator_type = A;
 	using size_type = std::size_t;
 	using difference_type = std::ptrdiff_t;
-	using smart_ptr_type = lfq_node_wrapper<T, lockfree_queue>;
+	using smart_ptr_type = lfq_node_wrapper<T, lockfree_queue>; //< The smart pointer return type
 
 
-	// Constructs queue with no elements
+	/// Constructs queue with no elements
 	lockfree_queue()
 		: mDummy{ new_node() }
 		, mHead{ mDummy }
@@ -375,9 +363,7 @@ public:
 	template <typename U = value_type>
 	U pop() {
 		node_ptr_t node = nullptr;
-		do {
-			node = sync_pop();
-		} while (node == nullptr);
+		while ((node = sync_pop()) == nullptr);
 		U data = nothrow_construct(node->data);
 		delete_node(node);
 		return data;
@@ -390,11 +376,7 @@ public:
 	/// @note thread-safe and blocking
 	smart_ptr_type node_pop() {
 		node_ptr_t node = nullptr;
-
-		do {
-			node = sync_pop();
-		} while (node == nullptr);
-
+		while ((node = sync_pop()) == nullptr);
 		return smart_ptr_type{ node, this };
 	}
 
@@ -405,9 +387,7 @@ public:
 	template <typename U>
 	void pop(U& ret) {
 		node_ptr_t node = nullptr;
-		do {
-			node = sync_pop();
-		} while (node == nullptr);
+		while ((node = sync_pop()) == nullptr);
 		ret = nothrow_assign(node->data);
 		delete_node(node);
 		return ret;
