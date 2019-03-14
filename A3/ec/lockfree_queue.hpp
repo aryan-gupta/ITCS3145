@@ -372,12 +372,13 @@ public:
 	/// Pops an element off the list and returns it
 	/// @return The popped element
 	/// @note thread-safe and blocking
-	value_type pop() {
+	template <typename U = value_type>
+	U pop() {
 		node_ptr_t node = nullptr;
 		do {
 			node = sync_pop();
 		} while (node == nullptr);
-		value_type data = nothrow_construct(node->data);
+		U data = nothrow_construct(node->data);
 		delete_node(node);
 		return data;
 	}
@@ -400,9 +401,9 @@ public:
 
 	/// Pops an element and copt or moves it into \p ret
 	/// If value_type cannot be nothrow moved or nothrow copy, this function is ill formed
-	/// @param ret The object in which to store the popped object
-	/// @todo make this a template so if the user chooses to use smart_ptr then it wont break compile issues
-	void pop(reference ret) {
+	/// @param ret The object in which to store the popped object. Must be assignable from value_type
+	template <typename U>
+	void pop(U& ret) {
 		node_ptr_t node = nullptr;
 		do {
 			node = sync_pop();
@@ -435,13 +436,14 @@ public:
 	/// @return If we were successful in popping an element
 	/// @return The popped element, or a default constructed object
 	/// @note This is not thread-safe and non-blocking
-	std::pair<bool, value_type> unsyncronized_pop() {
+	template <typename U = value_type>
+	std::pair<bool, U> unsyncronized_pop() {
 		node_ptr_t node = unsync_pop();
 
 		if (node == nullptr) {
-			return { false, value_type{ } };
+			return { false, U{ } };
 		} else {
-			value_type data = nothrow_construct(node->data);
+			U data = nothrow_construct(node->data);
 			delete_node(node);
 			return { true, data };
 		}
@@ -461,9 +463,9 @@ public:
 	/// Pops an element and copies or moves it into \p ret
 	/// If value_type cannot be nothrow moved or nothrow copy, this function is ill formed
 	/// @param ret The object in which to store the popped object
-	/// @todo make this a template so if the user chooses to use smart_ptr then it wont break compile issues
 	/// @note This is not thread-safe and non-blocking
-	bool unsyncronized_pop(reference ret) {
+	template <typename U>
+	bool unsyncronized_pop(U& ret) {
 		node_ptr_t node = unsync_pop();
 
 		if (node == nullptr) {
@@ -501,14 +503,15 @@ public:
 	/// Attempts to pop an element in a single pass
 	/// @note this is non-blocking
 	/// @return If an element was successfully popped
-	/// @return The popped element or a default constructed elemnt
-	std::pair<bool, value_type> try_pop() {
+	/// @return The popped element or a default constructed element
+	template <typename U = value_type>
+	std::pair<bool, U> try_pop() {
 		node_ptr_t node = sync_pop();
 
 		if (node == nullptr) {
-			return { false, value_type{ } };
+			return { false, U{ } };
 		} else {
-			value_type data = nothrow_construct(node->data);
+			U data = nothrow_construct(node->data);
 			delete_node(node);
 			return { true, data };
 		}
@@ -527,8 +530,8 @@ public:
 	/// Pops an element and copies or moves it into \p ret
 	/// If value_type cannot be nothrow moved or nothrow copied, this function is ill formed
 	/// @param ret The object in which to store the popped object
-	/// @todo make this a template so if the user chooses to use smart_ptr then it wont break compile issues
-	bool try_pop(reference ret) {
+	template <typename U>
+	bool try_pop(U& ret) {
 		node_ptr_t node = sync_pop();
 
 		if (node == nullptr) {
