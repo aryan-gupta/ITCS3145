@@ -11,7 +11,8 @@
 /// use this and modify it a bit to suit my tastes.
 /// http://blog.shealevy.com/2015/04/23/use-after-free-bug-in-maged-m-michael-and-michael-l-scotts-non-blocking-concurrent-queue-algorithm/
 /// https://stackoverflow.com/questions/40818465/explain-michael-scott-lock-free-queue-alorigthm
-
+/// Haha After 3 weeks, I finally got this working. MUAUAUAUA. It is non-blocking, and lock-free.
+/// Im happy, the impl is my own (with inspiration from above resources).
 
 #include <atomic>
 #include <memory>
@@ -32,24 +33,24 @@ struct lfq_node {
 
 	lfq_node(node_ptr_t n) : next{ n }, data{  } {  }
 
-	std::atomic<node_ptr_t> next;
-	value_type data;
+	std::atomic<node_ptr_t> next; //< Pointer to the next node
+	value_type data; //< The internal data
 };
 
 
 /// An allocator aware lock-free impl of a thread-safe queue.
 template <typename T, typename A = std::allocator<T>>
 class lockfree_queue {
-	using node_t = lfq_node<T>;
-	using node_ptr_t = lfq_node<T>*;
-	using node_allocator_type = typename std::allocator_traits<A>::template rebind_alloc<node_t>;
-	using node_allocator_traits_type = std::allocator_traits<node_allocator_type>;
+	using node_t = lfq_node<T>; //< Node type
+	using node_ptr_t = lfq_node<T>*; //< Node pointer type
+	using node_allocator_type = typename std::allocator_traits<A>::template rebind_alloc<node_t>; //< Node allocator type
+	using node_allocator_traits_type = std::allocator_traits<node_allocator_type>; //< Node allocator helper class
 
-	node_ptr_t mDummy;
-	std::atomic<node_ptr_t> mHead;
-	std::atomic<node_ptr_t> mTail;
-	std::atomic_flag mHasDummy;
-	node_allocator_type mAlloc;
+	node_ptr_t mDummy; //< The dummy node
+	std::atomic<node_ptr_t> mHead; //< Head node of the queue
+	std::atomic<node_ptr_t> mTail; //< Tail node of the queue
+	std::atomic_flag mHasDummy; //< Flag to notify if queue has dummy node
+	node_allocator_type mAlloc; //< Allocator for node
 
 
 	// Constructs a new node with the next pointer pointing to null
@@ -63,11 +64,14 @@ class lockfree_queue {
 	}
 
 
+	// Constructs a new node with the next pointer pointing to null. The data is default init
+	// @return The new node
 	node_ptr_t new_node() {
 		auto ptr = node_allocator_traits_type::allocate(mAlloc, 1);
 		node_allocator_traits_type::construct(mAlloc, ptr, nullptr);
 		return ptr;
 	}
+
 
 	// Deletes a node and the internal data
 	// @param ptr The node to delete/deallocate
@@ -76,10 +80,23 @@ class lockfree_queue {
 		node_allocator_traits_type::deallocate(mAlloc, ptr, 1);
 	}
 
-/// @todo There is alot of extra-ness in this code, we use CAS even though we can
-/// just use store. Fix this
-/// @todo Update memory barriers for even faster performance
 
+	/// @todo Update memory barriers for even faster performance
+	/// Pushes a node into the queue.
+	/// @param next The node to insert into the node
+	/// @return bool Whether the node was successfully inserted into the queue
+	// The impl goes like this. One invariant is that there is ALWAYS one node in
+	// the queue. This allows us to push an element into it without having to worry
+	// the consumers and producers fighting for the head node. If the tail node's
+	// next pointer is null then we have the ability to insert a node. So we will
+	// CAS on that node. This node will never "disapear" because one of the invariants
+	// is that there is at least one node in the queue. Once the next node is published
+	// consumers can pop the current tail node, but we dont care if this is popped. It
+	// will just mean that the tail node points to a node before the head node. Which
+	// will be corrected either by us or the next producer thread. If the next pointer
+	// is taken by another thread then just move the mTail node forward (unnessary, but)
+	// if the thread that added the next node dies then we will never be able to add more
+	// nodes anymore.
 	bool push(node_ptr_t next) {
 		node_ptr_t tail = mTail.load();
 		node_ptr_t tailNext = nullptr;
@@ -92,6 +109,22 @@ class lockfree_queue {
 		return true;
 	}
 
+
+	/// Pops a node from the queue.
+	/// @return The popped node if successful, or nullptr if we failed
+	// This part is more complicated because we need to be use a seperate algo if there
+	// is only one node in the queue, to prevent broken invariants. We first test if there
+	// is only one node in the queue. If so, we have ONE thread push in the dummy node. This
+	// will allow us to pop the last node out of the queue. We use a std::atomic_flag to signal
+	// to other threads that we are going to be the one to push the dummy node. There is an issue
+	// here where the push can fail. For now Im putting it into a loop, but this can be blocking.
+	// I will fix this later. Once we push the dummy node, we failed in popping a node so we return
+	// and let another thread pop the non-dummy node. If there is more than one node in the
+	// queue, then we just move the head forward. If we popped the dummy node then we clear the
+	// flag and return that we failed. If we have a valid node then we return the popped
+	// node, if we cant move the head forward then just return we failed.
+	// There is a few optimizations we can do here, for example, after we insert the dummy node, might
+	// as well try to pop that single node. But let me commit this so I dont lose it.
 	node_ptr_t pop() {
 		node_ptr_t head = mHead.load();
 		if (head->next == nullptr) { // we have one node then push a dummy node so we can pull out the last node
@@ -122,6 +155,7 @@ public:
 	using size_type = std::size_t;
 	using difference_type = std::ptrdiff_t;
 
+	// Constructs queue with no elements
 	lockfree_queue()
 		: mDummy{ new_node() }
 		, mHead{ mDummy }
@@ -143,6 +177,7 @@ public:
 
 
 	/// Pushed \p element into the queue
+	/// @param element The element to push into the queue
 	void push(const T& element) {
 		node_ptr_t next = new_node(element);
 		while (!push(next));
@@ -150,6 +185,8 @@ public:
 
 
 	/// Pops an element off the list and returns it
+	/// @return The popped element
+	/// @note thread-safe and blocking
 	T wait_pop() {
 		node_ptr_t node = nullptr;
 		do {
@@ -162,6 +199,7 @@ public:
 
 
 	/// Attempts to push an element in the queue in a single pass.
+	/// @param element The element to push into the queue
 	/// @note this is non-blocking
 	bool try_push(const T& element) {
 		node_ptr_t next = new_node(element);
@@ -173,6 +211,8 @@ public:
 
 	/// Attempts to pop an element in a single pass
 	/// @note this is non-blocking
+	/// @return If an element was successfully popped
+	/// @return The popped element or a default constructed elemnt
 	std::pair<bool, T> try_pop() {
 		node_ptr_t node = pop();
 
@@ -185,28 +225,9 @@ public:
 		}
 	}
 
-	/// Trys to pop until the op returns false
-	template <typename O>
-	[[deprecated]]
-	std::pair<bool, T> try_pop(O op) {
-		node_ptr_t node = nullptr;
-
-		/// keep trying to pop until we are successfull or op returns false
-		while (node == nullptr and op()) {
-			node = pop();
-		}
-
-		if (node == nullptr) {
-			return { false, T{ } };
-		} else {
-			T data = std::move(node->data);
-			delete_node(node);
-			return { true, data };
-		}
-	}
-
 
 	/// In place creates the node using the arguments then pushes it into the queue
+	/// @param args The args to use to emplace the element
 	template <typename... Args>
 	void emplace(Args&&... args) {
 		node_ptr_t next = new_node(std::forward<Args>(args)...);
