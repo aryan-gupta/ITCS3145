@@ -118,6 +118,13 @@ class lockfree_queue {
 	}
 
 
+	void push_dummy(bool(lockfree_queue::* func)(node_ptr_t)) {
+		if (!mHasDummy.test_and_set())
+			if(!(this->*func)(mDummy))
+				mHasDummy.clear();
+	}
+
+
 	/// Pops a node from the queue.
 	/// @return The popped node if successful, or nullptr if we failed
 	// This part is more complicated because we need to be use a seperate algo if there
@@ -136,8 +143,7 @@ class lockfree_queue {
 	node_ptr_t sync_pop() {
 		node_ptr_t head = mHead.load();
 		if (head->next == nullptr) { // we have one node then push a dummy node so we can pull out the last node
-			if (!mHasDummy.test_and_set()) // only one thread gets to push the dummy
-				while(!sync_push(mDummy));
+			push_dummy(&lockfree_queue::sync_push);
 			return nullptr;
 		} else {
 			if (mHead.compare_exchange_weak(head, head->next)) {
@@ -154,6 +160,29 @@ class lockfree_queue {
 			return nullptr;
 		}
 	}
+
+
+	bool unsync_push(node_ptr_t next) {
+		node_ptr_t tail = mTail.load(std::memory_order_relaxed);
+		tail->next = next;
+		mTail.store(next, std::memory_order_relaxed);
+		return true;
+	}
+
+
+	node_ptr_t unsync_pop() {
+		node_ptr_t head = mHead.load(std::memory_order_relaxed);
+
+		if (head == mDummy)
+			return nullptr;
+
+		if (head->next == nullptr)
+			push_dummy(&lockfree_queue::unsync_push);
+
+		mHead.store(head->next, std::memory_order_relaxed);
+		return head;
+	}
+
 
 public:
 	using value_type = T;
@@ -177,7 +206,7 @@ public:
 	/// set mHead and mTail to prevent other threads from accessing the data
 	~lockfree_queue() {
 		while (mHead.load() != mDummy) {
-			node_ptr_t node = sync_pop();
+			node_ptr_t node = unsync_pop();
 			if (node != nullptr) delete_node(node);
 		}
 		delete_node(mDummy);
@@ -211,6 +240,31 @@ public:
 		T data = std::move(node->data);
 		delete_node(node);
 		return data;
+	}
+
+
+	void unsyncronized_push(const T& element) {
+		node_ptr_t next = new_node(element);
+		unsync_push(next);
+	}
+
+
+	void unsyncronized_push(T&& element) {
+		node_ptr_t next = new_node( std::forward<T>(element) );
+		unsync_push(next);
+	}
+
+
+	std::pair<bool, T> unsyncronized_pop() {
+		node_ptr_t node = unsync_pop();
+
+		if (node == nullptr) {
+			return { false, T{ } };
+		} else {
+			T data = std::move(node->data);
+			delete_node(node);
+			return { true, data };
+		}
 	}
 
 
