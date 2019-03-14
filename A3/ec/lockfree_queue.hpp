@@ -151,7 +151,7 @@ public:
 
 	/// Access to the internal data
 	/// @return Reference to the internal data
-	T& operator *() const {
+	element_type& operator *() const {
 		return mNode->data;
 	}
 
@@ -345,7 +345,7 @@ public:
 	/// Destroys the queue, pops all the elements out of the queue. Would be a smart idea to
 	/// set mHead and mTail to prevent other threads from accessing the data
 	~lockfree_queue() {
-		while (mHead.load() != mDummy) {
+		while (mHead.load(std::memory_order_relaxed) != mDummy) {
 			node_ptr_t node = unsync_pop();
 			if (node != nullptr) delete_node(node);
 		}
