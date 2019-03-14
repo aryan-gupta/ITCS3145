@@ -305,7 +305,7 @@ public:
 
 	/// Pushed \p element into the queue
 	/// @param element The element to push into the queue
-	void push(const T& element) {
+	void push(const_reference element) {
 		node_ptr_t next = new_node(element);
 		while (!sync_push(next));
 	}
@@ -313,8 +313,8 @@ public:
 
 	/// Pushed \p element into the queue
 	/// @param element The element to push into the queue
-	void push(T&& element) {
-		node_ptr_t next = new_node( std::forward<T>(element) );
+	void push(value_type&& element) {
+		node_ptr_t next = new_node( std::forward<value_type>(element) );
 		while (!sync_push(next));
 	}
 
@@ -322,12 +322,12 @@ public:
 	/// Pops an element off the list and returns it
 	/// @return The popped element
 	/// @note thread-safe and blocking
-	T pop() {
+	value_type pop() {
 		node_ptr_t node = nullptr;
 		do {
 			node = sync_pop();
 		} while (node == nullptr);
-		T data = nothrow_construct(node->data);
+		value_type data = nothrow_construct(node->data);
 		delete_node(node);
 		return data;
 	}
@@ -343,7 +343,7 @@ public:
 	}
 
 
-	void pop(T& ret) {
+	void pop(reference ret) {
 		node_ptr_t node = nullptr;
 		do {
 			node = sync_pop();
@@ -354,25 +354,25 @@ public:
 	}
 
 
-	void unsyncronized_push(const T& element) {
+	void unsyncronized_push(const_reference element) {
 		node_ptr_t next = new_node(element);
 		unsync_push(next);
 	}
 
 
-	void unsyncronized_push(T&& element) {
-		node_ptr_t next = new_node( std::forward<T>(element) );
+	void unsyncronized_push(value_type&& element) {
+		node_ptr_t next = new_node( std::forward<value_type>(element) );
 		unsync_push(next);
 	}
 
 
-	std::pair<bool, T> unsyncronized_pop() {
+	std::pair<bool, value_type> unsyncronized_pop() {
 		node_ptr_t node = unsync_pop();
 
 		if (node == nullptr) {
-			return { false, T{ } };
+			return { false, value_type{ } };
 		} else {
-			T data = nothrow_construct(node->data);
+			value_type data = nothrow_construct(node->data);
 			delete_node(node);
 			return { true, data };
 		}
@@ -385,7 +385,7 @@ public:
 	}
 
 
-	bool unsyncronized_pop(T& ret) {
+	bool unsyncronized_pop(reference ret) {
 		node_ptr_t node = unsync_pop();
 
 		if (node == nullptr) {
@@ -401,7 +401,7 @@ public:
 	/// Attempts to push an element in the queue in a single pass.
 	/// @param element The element to push into the queue
 	/// @note this is non-blocking
-	bool try_push(const T& element) {
+	bool try_push(const_reference element) {
 		node_ptr_t next = new_node(element);
 		bool success = sync_push(next);
 		if (!success) delete_node(next);
@@ -412,8 +412,8 @@ public:
 	/// Attempts to push an element in the queue in a single pass.
 	/// @param element The element to push into the queue
 	/// @note this is non-blocking
-	bool try_push(T&& element) {
-		node_ptr_t next = new_node( std::forward<T>(element) );
+	bool try_push(value_type&& element) {
+		node_ptr_t next = new_node( std::forward<value_type>(element) );
 		bool success = sync_push(next);
 		if (!success) delete_node(next);
 		return success;
@@ -424,13 +424,13 @@ public:
 	/// @note this is non-blocking
 	/// @return If an element was successfully popped
 	/// @return The popped element or a default constructed elemnt
-	std::pair<bool, T> try_pop() {
+	std::pair<bool, value_type> try_pop() {
 		node_ptr_t node = sync_pop();
 
 		if (node == nullptr) {
-			return { false, T{ } };
+			return { false, value_type{ } };
 		} else {
-			T data = nothrow_construct(node->data);
+			value_type data = nothrow_construct(node->data);
 			delete_node(node);
 			return { true, data };
 		}
@@ -443,7 +443,7 @@ public:
 	}
 
 
-	bool try_pop(T& ret) {
+	bool try_pop(reference ret) {
 		node_ptr_t node = sync_pop();
 
 		if (node == nullptr) {
