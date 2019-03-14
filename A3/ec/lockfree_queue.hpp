@@ -171,10 +171,12 @@ class lockfree_queue {
 	#endif
 
 
-	alignas(cache_line) node_ptr_t mDummy; //< The dummy node
+	alignas(cache_line) struct {
+		node_ptr_t ptr; //< The dummy node
+		std::atomic_flag in; //< Flag to notify if queue has dummy node
+	} mDummy;
 	alignas(cache_line) std::atomic<node_ptr_t> mHead; //< Head node of the queue
 	alignas(cache_line) std::atomic<node_ptr_t> mTail; //< Tail node of the queue
-	alignas(cache_line) std::atomic_flag mHasDummy; //< Flag to notify if queue has dummy node
 	alignas(cache_line) node_allocator_type mAlloc; //< Allocator for node
 
 
@@ -239,9 +241,9 @@ class lockfree_queue {
 	/// @param func Whether to use unsync_push or sync_push to push the dummy node
 	/// @note Is thread-safe is sync_push is used. Is non-blocking
 	void push_dummy(bool(lockfree_queue::* func)(node_ptr_t)) {
-		if (!mHasDummy.test_and_set())
-			if(!(this->*func)(mDummy))
-				mHasDummy.clear();
+		if (!mDummy.in.test_and_set())
+			if(!(this->*func)(mDummy.ptr))
+				mDummy.in.clear();
 	}
 
 
@@ -269,10 +271,10 @@ class lockfree_queue {
 			if (mHead.compare_exchange_weak(head, head->next)) {
 				// if we get the dummy then we want to clear the status variable and return nullptr
 				// because we couldn't pop out a valid node.
-				if (head != mDummy) return head;
+				if (head != mDummy.ptr) return head;
 
-				mDummy->next = nullptr;
-				mHasDummy.clear();
+				mDummy.ptr->next = nullptr;
+				mDummy.in.clear();
 			}
 			return nullptr;
 		}
@@ -298,7 +300,7 @@ class lockfree_queue {
 	node_ptr_t unsync_pop() {
 		node_ptr_t head = mHead.load(std::memory_order_relaxed);
 
-		if (head == mDummy)
+		if (head == mDummy.ptr)
 			return nullptr;
 
 		if (head->next == nullptr)
@@ -322,22 +324,21 @@ public:
 
 	/// Constructs queue with no elements
 	lockfree_queue()
-		: mDummy{ new_node() }
-		, mHead{ mDummy }
-		, mTail{ mDummy }
-		, mHasDummy{ ATOMIC_FLAG_INIT }
+		: mDummy{ new_node(), ATOMIC_FLAG_INIT }
+		, mHead{ mDummy.ptr }
+		, mTail{ mDummy.ptr }
 		, mAlloc{ }
-	{ while(mHasDummy.test_and_set()); }
+	{ while(mDummy.in.test_and_set()); }
 
 
 	/// Destroys the queue, pops all the elements out of the queue. Would be a smart idea to
 	/// set mHead and mTail to prevent other threads from accessing the data
 	~lockfree_queue() {
-		while (mHead.load(std::memory_order_relaxed) != mDummy) {
+		while (mHead.load(std::memory_order_relaxed) != mDummy.ptr) {
 			node_ptr_t node = unsync_pop();
 			if (node != nullptr) delete_node(node);
 		}
-		delete_node(mDummy);
+		delete_node(mDummy.ptr);
 	}
 
 
