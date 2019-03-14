@@ -68,9 +68,69 @@ struct lfq_node {
 };
 
 
+template <typename T, typename Q>
+class lfq_node_wrapper {
+	using node_ptr_t = lfq_node<T>*;
+	using q_ptr_t = Q*;
+
+	node_ptr_t mNode;
+	q_ptr_t mQ;
+
+public:
+	using pointer      = typename std::remove_pointer_t<q_ptr_t>::node_allocator_traits_type::template rebind_alloc<T>::pointer;
+	using element_type = typename std::remove_pointer_t<q_ptr_t>::node_allocator_traits_type::template rebind_alloc<T>::value_type;
+	using deleter_type = typename std::remove_pointer_t<q_ptr_t>::node_allocator_traits_type::deallocate;
+
+	lfq_node_wrapper() = default;
+
+	lfq_node_wrapper(node_ptr_t node, q_ptr_t q) noexcept : mNode{ node }, mQ{ q } {  }
+
+	lfq_node_wrapper(const lfq_node_wrapper&) = delete; // We cant copy this, because we own the node
+	lfq_node_wrapper& operator=(const lfq_node_wrapper&) = delete;
+
+	lfq_node_wrapper(lfq_node_wrapper&& other) noexcept : mNode{ other.mNode }, mQ{ other.mQ }
+		{ mNode = nullptr; }
+
+	lfq_node_wrapper& operator=(lfq_node_wrapper&& other) noexcept {
+		release();
+		mNode = other.mNode;
+		mQ = other.mQ;
+		other.mNode = nullptr;
+	}
+
+	~lfq_node_wrapper() noexcept
+		{ release(); }
+
+	void release() noexcept {
+		if (mNode)
+			mQ->delete_node(mNode);
+		mNode = nullptr;
+	}
+
+	pointer get() const noexcept {
+		if (mNode == nullptr) return nullptr;
+		return &mNode->data;
+	}
+
+	explicit operator bool() const noexcept
+		{ return mNode != nullptr; }
+
+	T& operator *() const {
+		return mNode->data;
+	}
+
+	pointer operator ->() const noexcept {
+		return get();
+	}
+
+};
+
+
 /// An allocator aware lock-free impl of a thread-safe queue.
 template <typename T, typename A = std::allocator<T>>
 class lockfree_queue {
+	friend class lfq_node_wrapper<T, lockfree_queue<T, A>>;
+
 	using node_t = lfq_node<T>; //< Node type
 	using node_ptr_t = lfq_node<T>*; //< Node pointer type
 	using node_allocator_type = typename std::allocator_traits<A>::template rebind_alloc<node_t>; //< Node allocator type
@@ -220,6 +280,7 @@ public:
 	using allocator_type = A;
 	using size_type = std::size_t;
 	using difference_type = std::ptrdiff_t;
+	using smart_ptr_type = lfq_node_wrapper<T, lockfree_queue>;
 
 	// Constructs queue with no elements
 	lockfree_queue()
@@ -271,6 +332,16 @@ public:
 		return data;
 	}
 
+	smart_ptr_type node_pop() {
+		node_ptr_t node = nullptr;
+
+		do {
+			node = sync_pop();
+		} while (node == nullptr);
+
+		return smart_ptr_type{ node, this };
+	}
+
 
 	void pop(T& ret) {
 		node_ptr_t node = nullptr;
@@ -305,6 +376,12 @@ public:
 			delete_node(node);
 			return { true, data };
 		}
+	}
+
+
+	std::pair<bool, smart_ptr_type> unsyncronized_node_pop() {
+		node_ptr_t node = unsync_pop();
+		return { node != nullptr, { node, this } };
 	}
 
 
@@ -357,6 +434,12 @@ public:
 			delete_node(node);
 			return { true, data };
 		}
+	}
+
+
+	std::pair<bool, smart_ptr_type> try_node_pop() {
+		node_ptr_t node = sync_pop();
+		return { node != nullptr, { node, this } };
 	}
 
 
