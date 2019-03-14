@@ -83,11 +83,12 @@ class lockfree_queue {
 	bool push(node_ptr_t next) {
 		node_ptr_t tail = mTail.load();
 		node_ptr_t tailNext = nullptr;
-		if (!tail->next.compare_exchange_weak(tailNext, next)) {
-			mTail.compare_exchange_strong(tail, tailNext);
+		// we cant have spurious failures here or the mTail node will be set to nullptr
+		if (!tail->next.compare_exchange_strong(tailNext, next)) {
+			mTail.compare_exchange_weak(tail, tailNext);
 			return false;
 		}
-		mTail.compare_exchange_strong(tail, next);
+		mTail.compare_exchange_weak(tail, next);
 		return true;
 	}
 
@@ -95,7 +96,7 @@ class lockfree_queue {
 		node_ptr_t head = mHead.load();
 		if (head->next == nullptr) { // we have one node then push a dummy node so we can pull out the last node
 			if (!mHasDummy.test_and_set()) // only one thread gets to push the dummy
-				push(mDummy);
+				while(!push(mDummy));
 			return nullptr;
 		} else {
 			if (mHead.compare_exchange_weak(head, head->next)) {
@@ -134,7 +135,8 @@ public:
 	/// set mHead and mTail to prevent other threads from accessing the data
 	~lockfree_queue() {
 		while (mHead.load() != mDummy) {
-			pop();
+			node_ptr_t node = pop();
+			if (node != nullptr) delete_node(node);
 		}
 		delete_node(mDummy);
 	}
