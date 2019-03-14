@@ -243,6 +243,17 @@ public:
 	}
 
 
+	void pop(T& ret) {
+		node_ptr_t node = nullptr;
+		do {
+			node = sync_pop();
+		} while (node == nullptr);
+		ret = std::move(node->data);
+		delete_node(node);
+		return ret;
+	}
+
+
 	void unsyncronized_push(const T& element) {
 		node_ptr_t next = new_node(element);
 		unsync_push(next);
@@ -264,6 +275,19 @@ public:
 			T data = std::move(node->data);
 			delete_node(node);
 			return { true, data };
+		}
+	}
+
+
+	bool unsyncronized_pop(T& ret) {
+		node_ptr_t node = unsync_pop();
+
+		if (node == nullptr) {
+			return false;
+		} else {
+			ret = std::move(node->data);
+			delete_node(node);
+			return true;
 		}
 	}
 
@@ -303,6 +327,19 @@ public:
 			T data = std::move(node->data);
 			delete_node(node);
 			return { true, data };
+		}
+	}
+
+
+	bool try_pop(T& ret) {
+		node_ptr_t node = sync_pop();
+
+		if (node == nullptr) {
+			return false;
+		} else {
+			ret = std::move(node->data);
+			delete_node(node);
+			return true;
 		}
 	}
 
