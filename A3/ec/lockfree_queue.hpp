@@ -30,6 +30,8 @@ struct lfq_node {
 	template <typename... Args>
 	lfq_node(node_ptr_t n, Args&&... args) : next{ n }, data{ std::forward<Args>(args)... } {  }
 
+	lfq_node(node_ptr_t n) : next{ n }, data{  } {  }
+
 	std::atomic<node_ptr_t> next;
 	value_type data;
 };
@@ -43,8 +45,10 @@ class lockfree_queue {
 	using node_allocator_type = typename std::allocator_traits<A>::template rebind_alloc<node_t>;
 	using node_allocator_traits_type = std::allocator_traits<node_allocator_type>;
 
+	node_ptr_t mDummy;
 	std::atomic<node_ptr_t> mHead;
 	std::atomic<node_ptr_t> mTail;
+	std::atomic_flag mHasDummy;
 	node_allocator_type mAlloc;
 
 
@@ -58,6 +62,12 @@ class lockfree_queue {
 		return ptr;
 	}
 
+
+	node_ptr_t new_node() {
+		auto ptr = node_allocator_traits_type::allocate(mAlloc, 1);
+		node_allocator_traits_type::construct(mAlloc, ptr, nullptr);
+		return ptr;
+	}
 
 	// Deletes a node and the internal data
 	// @param ptr The node to delete/deallocate
@@ -77,33 +87,28 @@ class lockfree_queue {
 			mTail.compare_exchange_strong(tail, tailNext);
 			return false;
 		}
-		mTail.compare_exchange_strong(tail, tailNext);
+		mTail.compare_exchange_strong(tail, next);
 		return true;
 	}
 
-	node_ptr_t pop(node_ptr_t dummy) {
+	node_ptr_t pop() {
 		node_ptr_t head = mHead.load();
-		node_ptr_t tail = mTail.load();
-		if (head == nullptr) { // empty queue, loop
-			return nullptr;
-		} else if (tail == head) { // queue has one element
-			// try to take ownership of tail node
-			node_ptr_t tailNext = tail->next.load();
-			if (tailNext == nullptr) { // Check if we can get ownership of tail next pointer
-				if (tail->next.compare_exchange_weak(tailNext, dummy)) {
-					// we now have ownership of tail node so no other thread can mess with it. update head node to reflect
-					if (mHead.compare_exchange_strong(head, nullptr)) {
-						if (mTail.compare_exchange_strong(tail, nullptr)) {
-							return head;
-						}
-					}
-				}
-			}
+		if (head->next == nullptr) { // we have one node then push a dummy node so we can pull out the last node
+			if (!mHasDummy.test_and_set()) // only one thread gets to push the dummy
+				push(mDummy);
 			return nullptr;
 		} else {
-			node_ptr_t nextHead = head->next.load();
-			if (mHead.compare_exchange_weak(head, nextHead))
-				return head;
+			if (mHead.compare_exchange_weak(head, head->next)) {
+				// if we get the dummy then we want to clear the status variable and return nullptr
+				// because we couldn't pop out a valid node.
+				if (head == mDummy) {
+					mDummy->next = nullptr;
+					mHasDummy.clear();
+					return nullptr;
+				} else {
+					return head;
+				}
+			}
 			return nullptr;
 		}
 	}
@@ -116,15 +121,22 @@ public:
 	using size_type = std::size_t;
 	using difference_type = std::ptrdiff_t;
 
-	lockfree_queue() : mHead{ new_node() }, mTail{ mHead.load() }, mAlloc{ } { }
+	lockfree_queue()
+		: mDummy{ new_node() }
+		, mHead{ mDummy }
+		, mTail{ mDummy }
+		, mHasDummy{ ATOMIC_FLAG_INIT }
+		, mAlloc{ }
+	{ while(mHasDummy.test_and_set()); }
 
 
 	/// Destroys the queue, pops all the elements out of the queue. Would be a smart idea to
 	/// set mHead and mTail to prevent other threads from accessing the data
 	~lockfree_queue() {
-		while (mHead.load() != nullptr) {
+		while (mHead.load() != mDummy) {
 			pop();
 		}
+		delete_node(mDummy);
 	}
 
 
@@ -136,13 +148,11 @@ public:
 
 
 	/// Pops an element off the list and returns it
-	T pop() {
-		node_ptr_t dummy = new_node(T{ });
+	T wait_pop() {
 		node_ptr_t node = nullptr;
-		while (node == nullptr) {
-			node = pop(dummy);
-		}
-		delete_node(dummy);
+		do {
+			node = pop();
+		} while (node == nullptr);
 		T data = std::move(node->data);
 		delete_node(node);
 		return data;
@@ -162,9 +172,7 @@ public:
 	/// Attempts to pop an element in a single pass
 	/// @note this is non-blocking
 	std::pair<bool, T> try_pop() {
-		node_ptr_t dummy = new_node(T{ });
-		node_ptr_t node = pop(dummy);
-		delete_node(dummy);
+		node_ptr_t node = pop();
 
 		if (node == nullptr) {
 			return { false, T{ } };
@@ -177,16 +185,15 @@ public:
 
 	/// Trys to pop until the op returns false
 	template <typename O>
+	[[deprecated]]
 	std::pair<bool, T> try_pop(O op) {
-		node_ptr_t dummy = new_node(T{ });
 		node_ptr_t node = nullptr;
 
 		/// keep trying to pop until we are successfull or op returns false
 		while (node == nullptr and op()) {
-			node = pop(dummy);
+			node = pop();
 		}
 
-		delete_node(dummy);
 		if (node == nullptr) {
 			return { false, T{ } };
 		} else {
