@@ -21,6 +21,35 @@
 
 namespace ari {
 
+// If we cant move it then copy it
+template <typename T, typename = std::enable_if_t<
+	!std::is_nothrow_move_constructible_v<std::remove_reference_t<T>> and
+	std::is_nothrow_copy_constructible_v<std::remove_reference_t<T>>
+>>
+constexpr auto nothrow_construct(T&& t) -> std::remove_reference_t<T>& {
+	return t;
+}
+
+// If we can move construct it or move assign it then move it
+template <typename T, typename = std::enable_if_t<std::is_nothrow_move_constructible_v<std::remove_reference_t<T>>>>
+constexpr auto nothrow_construct(T&& t) -> std::remove_reference_t<T>&& {
+	return static_cast<std::remove_reference_t<T>&&>(t);
+}
+
+template <typename T, typename = std::enable_if_t<
+	!std::is_nothrow_move_assignable_v<std::remove_reference_t<T>> and
+	std::is_nothrow_copy_assignable_v<std::remove_reference_t<T>>
+>>
+constexpr auto nothrow_assign(T&& t) -> std::remove_reference_t<T>& {
+	return t;
+}
+
+// If we can move construct it or move assign it then move it
+template <typename T, typename = std::enable_if_t<std::is_nothrow_move_assignable_v<std::remove_reference_t<T>>>>
+constexpr auto nothrow_assign(T&& t) -> std::remove_reference_t<T>&& {
+	return static_cast<std::remove_reference_t<T>&&>(t);
+}
+
 /// Internal impl of a node of the lockfree queue.
 template <typename T>
 struct lfq_node {
@@ -237,7 +266,7 @@ public:
 		do {
 			node = sync_pop();
 		} while (node == nullptr);
-		T data = std::move(node->data);
+		T data = nothrow_construct(node->data);
 		delete_node(node);
 		return data;
 	}
@@ -248,7 +277,7 @@ public:
 		do {
 			node = sync_pop();
 		} while (node == nullptr);
-		ret = std::move(node->data);
+		ret = nothrow_assign(node->data);
 		delete_node(node);
 		return ret;
 	}
@@ -272,7 +301,7 @@ public:
 		if (node == nullptr) {
 			return { false, T{ } };
 		} else {
-			T data = std::move(node->data);
+			T data = nothrow_construct(node->data);
 			delete_node(node);
 			return { true, data };
 		}
@@ -285,7 +314,7 @@ public:
 		if (node == nullptr) {
 			return false;
 		} else {
-			ret = std::move(node->data);
+			ret = nothrow_assign(node->data);
 			delete_node(node);
 			return true;
 		}
@@ -324,7 +353,7 @@ public:
 		if (node == nullptr) {
 			return { false, T{ } };
 		} else {
-			T data = std::move(node->data);
+			T data = nothrow_construct(node->data);
 			delete_node(node);
 			return { true, data };
 		}
@@ -337,7 +366,7 @@ public:
 		if (node == nullptr) {
 			return false;
 		} else {
-			ret = std::move(node->data);
+			ret = nothrow_assign(node->data);
 			delete_node(node);
 			return true;
 		}
