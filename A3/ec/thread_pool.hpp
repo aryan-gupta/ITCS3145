@@ -5,7 +5,7 @@
 #include <condition_variable>
 #include <atomic>
 
-#define USE_BOOST
+// #define USE_BOOST
 
 #ifdef USE_BOOST
 #include <boost/lockfree/queue.hpp>
