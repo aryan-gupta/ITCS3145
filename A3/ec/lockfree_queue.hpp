@@ -17,6 +17,7 @@
 #include <atomic>
 #include <memory>
 #include <utility>
+#include <new>
 
 namespace ari {
 
@@ -46,11 +47,18 @@ class lockfree_queue {
 	using node_allocator_type = typename std::allocator_traits<A>::template rebind_alloc<node_t>; //< Node allocator type
 	using node_allocator_traits_type = std::allocator_traits<node_allocator_type>; //< Node allocator helper class
 
-	node_ptr_t mDummy; //< The dummy node
-	std::atomic<node_ptr_t> mHead; //< Head node of the queue
-	std::atomic<node_ptr_t> mTail; //< Tail node of the queue
-	std::atomic_flag mHasDummy; //< Flag to notify if queue has dummy node
-	node_allocator_type mAlloc; //< Allocator for node
+	#ifdef __cpp_lib_thread_hardware_interference_size
+	static constexpr size_t cache_line = std::hardware_destructive_interference_size;
+	#else
+	static constexpr size_t cache_line = 64;
+	#endif
+
+
+	alignas(cache_line) node_ptr_t mDummy; //< The dummy node
+	alignas(cache_line) std::atomic<node_ptr_t> mHead; //< Head node of the queue
+	alignas(cache_line) std::atomic<node_ptr_t> mTail; //< Tail node of the queue
+	alignas(cache_line) std::atomic_flag mHasDummy; //< Flag to notify if queue has dummy node
+	alignas(cache_line) node_allocator_type mAlloc; //< Allocator for node
 
 
 	// Constructs a new node with the next pointer pointing to null
@@ -97,7 +105,7 @@ class lockfree_queue {
 	// is taken by another thread then just move the mTail node forward (unnessary, but)
 	// if the thread that added the next node dies then we will never be able to add more
 	// nodes anymore.
-	bool push(node_ptr_t next) {
+	bool sync_push(node_ptr_t next) {
 		node_ptr_t tail = mTail.load();
 		node_ptr_t tailNext = nullptr;
 		// we cant have spurious failures here or the mTail node will be set to nullptr
@@ -125,11 +133,11 @@ class lockfree_queue {
 	// node, if we cant move the head forward then just return we failed.
 	// There is a few optimizations we can do here, for example, after we insert the dummy node, might
 	// as well try to pop that single node. But let me commit this so I dont lose it.
-	node_ptr_t pop() {
+	node_ptr_t sync_pop() {
 		node_ptr_t head = mHead.load();
 		if (head->next == nullptr) { // we have one node then push a dummy node so we can pull out the last node
 			if (!mHasDummy.test_and_set()) // only one thread gets to push the dummy
-				while(!push(mDummy));
+				while(!sync_push(mDummy));
 			return nullptr;
 		} else {
 			if (mHead.compare_exchange_weak(head, head->next)) {
@@ -169,7 +177,7 @@ public:
 	/// set mHead and mTail to prevent other threads from accessing the data
 	~lockfree_queue() {
 		while (mHead.load() != mDummy) {
-			node_ptr_t node = pop();
+			node_ptr_t node = sync_pop();
 			if (node != nullptr) delete_node(node);
 		}
 		delete_node(mDummy);
@@ -180,17 +188,25 @@ public:
 	/// @param element The element to push into the queue
 	void push(const T& element) {
 		node_ptr_t next = new_node(element);
-		while (!push(next));
+		while (!sync_push(next));
+	}
+
+
+	/// Pushed \p element into the queue
+	/// @param element The element to push into the queue
+	void push(T&& element) {
+		node_ptr_t next = new_node( std::forward<T>(element) );
+		while (!sync_push(next));
 	}
 
 
 	/// Pops an element off the list and returns it
 	/// @return The popped element
 	/// @note thread-safe and blocking
-	T wait_pop() {
+	T pop() {
 		node_ptr_t node = nullptr;
 		do {
-			node = pop();
+			node = sync_pop();
 		} while (node == nullptr);
 		T data = std::move(node->data);
 		delete_node(node);
@@ -203,7 +219,18 @@ public:
 	/// @note this is non-blocking
 	bool try_push(const T& element) {
 		node_ptr_t next = new_node(element);
-		bool success = push(next);
+		bool success = sync_push(next);
+		if (!success) delete_node(next);
+		return success;
+	}
+
+
+	/// Attempts to push an element in the queue in a single pass.
+	/// @param element The element to push into the queue
+	/// @note this is non-blocking
+	bool try_push(T&& element) {
+		node_ptr_t next = new_node( std::forward<T>(element) );
+		bool success = sync_push(next);
 		if (!success) delete_node(next);
 		return success;
 	}
@@ -214,7 +241,7 @@ public:
 	/// @return If an element was successfully popped
 	/// @return The popped element or a default constructed elemnt
 	std::pair<bool, T> try_pop() {
-		node_ptr_t node = pop();
+		node_ptr_t node = sync_pop();
 
 		if (node == nullptr) {
 			return { false, T{ } };
@@ -231,7 +258,7 @@ public:
 	template <typename... Args>
 	void emplace(Args&&... args) {
 		node_ptr_t next = new_node(std::forward<Args>(args)...);
-		while (!push(next));
+		while (!sync_push(next));
 	}
 };
 
