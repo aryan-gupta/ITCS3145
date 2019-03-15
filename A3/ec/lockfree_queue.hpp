@@ -173,7 +173,7 @@ class lockfree_queue {
 
 	alignas(cache_line) struct {
 		node_ptr_t ptr; //< The dummy node
-		std::atomic_flag in; //< Flag to notify if queue has dummy node
+		std::atomic_bool in; //< Flag to notify if queue has dummy node
 	} mDummy;
 	alignas(cache_line) std::atomic<node_ptr_t> mHead; //< Head node of the queue
 	alignas(cache_line) std::atomic<node_ptr_t> mTail; //< Tail node of the queue
@@ -193,7 +193,7 @@ class lockfree_queue {
 
 	// Constructs a new node with the next pointer pointing to null. The data is default init
 	// @return The new node
-	node_ptr_t new_node() {
+	node_ptr_t new_dummy() {
 		auto ptr = node_allocator_traits_type::allocate(mAlloc, 1);
 		node_allocator_traits_type::construct(mAlloc, ptr, nullptr);
 		return ptr;
@@ -237,14 +237,19 @@ class lockfree_queue {
 	}
 
 
+	std::atomic_char mDebug = 0;
+
 	/// Trys to push a dummy node into the queue. Will not always success and does not block
 	/// @param func Whether to use unsync_push or sync_push to push the dummy node
 	/// @note Is thread-safe is sync_push is used. Is non-blocking
 	void push_dummy(bool(lockfree_queue::* func)(node_ptr_t)) {
-		if (!mDummy.in.test_and_set()) {
+		bool expected = false;
+		if (mDummy.in.compare_exchange_weak(expected, true)) {
+			if (mDebug.fetch_add(1) == 1)
+				std::cout << 'H';
 			mDummy.ptr->next = nullptr;
-			if(!(this->*func)(mDummy.ptr))
-				mDummy.in.clear();
+			while (!(this->*func)(mDummy.ptr));
+				//mDummy.in.clear();
 		}
 	}
 
@@ -252,8 +257,12 @@ class lockfree_queue {
 	// because we couldn't pop out a valid node.
 	node_ptr_t pop_dummy(node_ptr_t node) {
 		if (node == mDummy.ptr) {
+			// std::cout << 'R';
+			mDebug.fetch_sub(1);
 			node->next = nullptr;
-			mDummy.in.clear();
+			bool expected = true; // @todo remove after debugging
+			if (!mDummy.in.compare_exchange_strong(expected, false))
+				throw 5;
 			return nullptr;
 		}
 		return node;
@@ -278,6 +287,9 @@ class lockfree_queue {
 	node_ptr_t sync_pop() {
 		node_ptr_t head = mHead.load();
 		node_ptr_t headNext = head->next.load();
+		if(head == headNext)
+			std::cout << 'S';
+
 		if (headNext == nullptr) { // we have one node then push a dummy node so we can pull out the last node
 			push_dummy(&lockfree_queue::sync_push);
 			return nullptr;
@@ -333,11 +345,11 @@ public:
 
 	/// Constructs queue with no elements
 	lockfree_queue()
-		: mDummy{ new_node(), ATOMIC_FLAG_INIT }
+		: mDummy{ new_dummy(), true }
 		, mHead{ mDummy.ptr }
 		, mTail{ mDummy.ptr }
 		, mAlloc{ }
-	{ while(mDummy.in.test_and_set()); }
+	{  }
 
 
 	/// Destroys the queue, pops all the elements out of the queue. Would be a smart idea to
