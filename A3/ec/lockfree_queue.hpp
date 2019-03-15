@@ -228,12 +228,12 @@ class lockfree_queue {
 		node_ptr_t tail = mTail.load();
 		node_ptr_t tailNext = nullptr;
 		// we cant have spurious failures here or the mTail node will be set to nullptr
-		if (!tail->next.compare_exchange_strong(tailNext, next)) {
-			mTail.compare_exchange_weak(tail, tailNext);
-			return false;
+		if (tail->next.compare_exchange_strong(tailNext, next)) {
+			mTail.compare_exchange_weak(tail, next);
+			return true;
 		}
-		mTail.compare_exchange_weak(tail, next);
-		return true;
+		mTail.compare_exchange_weak(tail, tailNext);
+		return false;
 	}
 
 
