@@ -241,9 +241,22 @@ class lockfree_queue {
 	/// @param func Whether to use unsync_push or sync_push to push the dummy node
 	/// @note Is thread-safe is sync_push is used. Is non-blocking
 	void push_dummy(bool(lockfree_queue::* func)(node_ptr_t)) {
-		if (!mDummy.in.test_and_set())
+		if (!mDummy.in.test_and_set()) {
+			mDummy.ptr->next = nullptr;
 			if(!(this->*func)(mDummy.ptr))
 				mDummy.in.clear();
+		}
+	}
+
+	// if we get the dummy then we want to clear the status variable and return nullptr
+	// because we couldn't pop out a valid node.
+	node_ptr_t pop_dummy(node_ptr_t node) {
+		if (node == mDummy.ptr) {
+			node->next = nullptr;
+			mDummy.in.clear();
+			return nullptr;
+		}
+		return node;
 	}
 
 
@@ -270,12 +283,7 @@ class lockfree_queue {
 			return nullptr;
 		} else {
 			if (mHead.compare_exchange_weak(head, headNext)) {
-				// if we get the dummy then we want to clear the status variable and return nullptr
-				// because we couldn't pop out a valid node.
-				if (head != mDummy.ptr) return head;
-
-				mDummy.ptr->next = nullptr;
-				mDummy.in.clear();
+				return pop_dummy(head);
 			}
 			return nullptr;
 		}
