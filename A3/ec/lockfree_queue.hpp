@@ -266,7 +266,7 @@ class lockfree_queue {
 		node_ptr_t head = mHead.load();
 		node_ptr_t headNext = head->next.load();
 		if (headNext == nullptr) { // we have one node then push a dummy node so we can pull out the last node
-			// push_dummy(&lockfree_queue::sync_push);
+			push_dummy(&lockfree_queue::sync_push);
 			return nullptr;
 		} else {
 			if (mHead.compare_exchange_weak(head, headNext)) {
