@@ -264,11 +264,12 @@ class lockfree_queue {
 	// as well try to pop that single node. But let me commit this so I dont lose it.
 	node_ptr_t sync_pop() {
 		node_ptr_t head = mHead.load();
-		if (head->next == nullptr) { // we have one node then push a dummy node so we can pull out the last node
-			push_dummy(&lockfree_queue::sync_push);
+		node_ptr_t headNext = head->next.load();
+		if (headNext == nullptr) { // we have one node then push a dummy node so we can pull out the last node
+			// push_dummy(&lockfree_queue::sync_push);
 			return nullptr;
 		} else {
-			if (mHead.compare_exchange_weak(head, head->next)) {
+			if (mHead.compare_exchange_weak(head, headNext)) {
 				// if we get the dummy then we want to clear the status variable and return nullptr
 				// because we couldn't pop out a valid node.
 				if (head != mDummy.ptr) return head;
