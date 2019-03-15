@@ -182,6 +182,12 @@ std::vector<std::tuple<func_t, int, int, int, float>> get_jobs(std::string_view 
 }
 
 
+inline bool fexits(const char* name) {
+	std::ifstream f(name);
+	return f.good();
+}
+
+
 int main(int argc, char* argv[]) {
 	int nbthreads = std::thread::hardware_concurrency();
 
@@ -198,8 +204,10 @@ int main(int argc, char* argv[]) {
 	}
 
 	#ifdef CASES_FILE
-		//const char loc[] = "/home/aryan/Projects/ITCS3145/A3/dynamic/cases.txt";
-		const char loc[] = "../dynamic/cases.txt";
+		const char rloc[] = "../dynamic/cases.txt";
+		const char* loc = "/home/aryan/Projects/ITCS3145/A3/dynamic/cases.txt";
+		if (fexits(rloc))
+			loc = rloc;
 		std::cout << "[I] Pulling Jobs from cases.txt..."<< std::endl;
 		auto todo = get_jobs(loc);
 	#else
@@ -225,12 +233,14 @@ int main(int argc, char* argv[]) {
 	for (auto [f, n, intensity, gran, answer] : todo) {
 		auto jh = submit_job(tps, f, a, b, n, gran, intensity);
 		jobs.emplace_back(jh, answer);
-		std::cout << "\r[I] Total Jobs posted: " << jobs.size();
+		// std::cout << "\r[I] Total Jobs posted: " << jobs.size();
 		std::cout.flush();
 	}
-	std::cout << std::endl;
+	// std::cout << std::endl;
 
-	std::cout << "[I] Waiting for jobs to finish..." << std::endl;
+	// tps.post([](){ return; }); // dislodge the last node
+
+	// std::cout << "[I] Waiting for jobs to finish..." << std::endl;
 
 	bool done = false;
 	while (!done) {
@@ -242,11 +252,11 @@ int main(int argc, char* argv[]) {
 				++count;
 			}
 		}
-		std::cout << "\r[I] Waiting on " << count << " jobs    ";
+		// std::cout << "\r[I] Waiting on " << count << " jobs    ";
 		std::cout.flush(); // https://stackoverflow.com/questions/14539867/
 		std::this_thread::yield();
 	}
-	std::cout << std::endl;
+	// std::cout << std::endl;
 
 	tps.join();
 
