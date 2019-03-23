@@ -4,6 +4,21 @@
 	// For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
 	"version": "0.2.0",
 	"configurations": [
+	{
+		"name": "(gdb) Attach",
+		"type": "cppdbg",
+		"request": "attach",
+		"program": "/home/aryan/Projects/ITCS3145/A3/ec/a.out",
+		"processId": "${command:pickProcess}",
+		"MIMode": "gdb",
+		"setupCommands": [
+			{
+				"description": "Enable pretty-printing for gdb",
+				"text": "-enable-pretty-printing",
+				"ignoreFailures": true
+			}
+		]
+	},
 		{
 			"name": "(gdb) Launch",
 			"type": "cppdbg",
@@ -19,6 +34,11 @@
 				{
 					"description": "Enable pretty-printing for gdb",
 					"text": "-enable-pretty-printing",
+					"ignoreFailures": true
+				},
+				{
+					"description": "Enable pretty-printing for gdb",
+					"text": "-exec source -v /home/aryan/Projects/ITCS3145/A3/ec/script.gdb",
 					"ignoreFailures": true
 				}
 			]
