@@ -1,0 +1,13 @@
+
+*.sh.*
+*.o
+
+reduce/reduce
+lcs/lcs
+mergesort/mergesort
+bubblesort/bubblesort
+
+sequential/reduce_seq
+sequential/mergesort_seq
+sequential/bubblesort_seq
+sequential/lcs_seq
