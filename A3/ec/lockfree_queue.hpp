@@ -53,17 +53,16 @@ struct lfq_node {
 	/// @param n The next pointer
 	/// @param args The arguments to construct the data with
 	template <typename... Args>
-	lfq_node(node_ptr_t n, Args&&... args) : next{ n }, data{ std::forward<Args>(args)... }, is_dummy{ false } {  }
+	lfq_node(node_ptr_t n, Args&&... args) : next{ n }, data{ std::forward<Args>(args)... } {  }
 
 
 	/// Default constructs the data with the next pointer
 	/// @param n The next pointer
-	lfq_node(node_ptr_t n) : next{ n }, data{  }, is_dummy{ true } {  }
+	lfq_node(node_ptr_t n) : next{ n }, data{  } {  }
 
 
 	std::atomic<node_ptr_t> next; //< Pointer to the next node
 	value_type data; //< The internal data
-	const bool is_dummy;
 };
 
 
@@ -172,7 +171,10 @@ class lockfree_queue {
 	#endif
 
 
-	alignas(cache_line) std::atomic<node_ptr_t> mDummy;
+	alignas(cache_line) struct {
+		node_ptr_t ptr; //< The dummy node
+		std::atomic_flag in; //< Flag to notify if queue has dummy node
+	} mDummy;
 	alignas(cache_line) std::atomic<node_ptr_t> mHead; //< Head node of the queue
 	alignas(cache_line) std::atomic<node_ptr_t> mTail; //< Tail node of the queue
 	alignas(cache_line) node_allocator_type mAlloc; //< Allocator for node
@@ -191,7 +193,7 @@ class lockfree_queue {
 
 	// Constructs a new node with the next pointer pointing to null. The data is default init
 	// @return The new node
-	node_ptr_t new_dummy() {
+	node_ptr_t new_node() {
 		auto ptr = node_allocator_traits_type::allocate(mAlloc, 1);
 		node_allocator_traits_type::construct(mAlloc, ptr, nullptr);
 		return ptr;
@@ -239,15 +241,19 @@ class lockfree_queue {
 	/// @param func Whether to use unsync_push or sync_push to push the dummy node
 	/// @note Is thread-safe is sync_push is used. Is non-blocking
 	void push_dummy(bool(lockfree_queue::* func)(node_ptr_t)) {
-		node_ptr_t dummy = new_dummy();
-		while (!(this->*func)(dummy));
-		// delete_node(dummy);
+		if (!mDummy.in.test_and_set()) {
+			mDummy.ptr->next = nullptr;
+			if(!(this->*func)(mDummy.ptr))
+				mDummy.in.clear();
+		}
 	}
 
 	// if we get the dummy then we want to clear the status variable and return nullptr
 	// because we couldn't pop out a valid node.
 	node_ptr_t pop_dummy(node_ptr_t node) {
-		if (node->is_dummy) {
+		if (node == mDummy.ptr) {
+			node->next = nullptr;
+			mDummy.in.clear();
 			return nullptr;
 		}
 		return node;
@@ -272,7 +278,6 @@ class lockfree_queue {
 	node_ptr_t sync_pop() {
 		node_ptr_t head = mHead.load();
 		node_ptr_t headNext = head->next.load();
-
 		if (headNext == nullptr) { // we have one node then push a dummy node so we can pull out the last node
 			push_dummy(&lockfree_queue::sync_push);
 			return nullptr;
@@ -304,10 +309,11 @@ class lockfree_queue {
 	node_ptr_t unsync_pop() {
 		node_ptr_t head = mHead.load(std::memory_order_relaxed);
 
-		if (head->next == nullptr) {
-			if (head->is_dummy) return nullptr;
+		if (head == mDummy.ptr)
+			return nullptr;
+
+		if (head->next == nullptr)
 			push_dummy(&lockfree_queue::unsync_push);
-		}
 
 		mHead.store(head->next, std::memory_order_relaxed);
 		return head;
@@ -327,22 +333,21 @@ public:
 
 	/// Constructs queue with no elements
 	lockfree_queue()
-		: mDummy{ new_dummy() }
-		, mHead{ mDummy.load() }
-		, mTail{ mDummy.load() }
+		: mDummy{ new_node(), ATOMIC_FLAG_INIT }
+		, mHead{ mDummy.ptr }
+		, mTail{ mDummy.ptr }
 		, mAlloc{ }
-	{  }
+	{ while(mDummy.in.test_and_set()); }
 
 
 	/// Destroys the queue, pops all the elements out of the queue. Would be a smart idea to
 	/// set mHead and mTail to prevent other threads from accessing the data
 	~lockfree_queue() {
-
-		// while (mHead.load(std::memory_order_relaxed) != mDummy.load()) {
-		// 	node_ptr_t node = unsync_pop();
-		// 	if (node != nullptr) delete_node(node);
-		// }
-		// delete_node(mDummy.load());
+		while (mHead.load(std::memory_order_relaxed) != mDummy.ptr) {
+			node_ptr_t node = unsync_pop();
+			if (node != nullptr) delete_node(node);
+		}
+		delete_node(mDummy.ptr);
 	}
 
 
