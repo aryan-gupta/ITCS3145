@@ -41,7 +41,7 @@ constexpr auto nothrow_assign(T&& t) -> std::remove_reference_t<T>&&
 /// Internal impl of a lockfree queue node.
 template <typename T>
 struct lfq_node {
-	using node_ptr_t = lfq_node*; //< Node pointer to next element
+	using pointer = lfq_node*; //< Node pointer to next element
 	using value_type = T; //< Data type
 
 
@@ -53,15 +53,15 @@ struct lfq_node {
 	/// @param n The next pointer
 	/// @param args The arguments to construct the data with
 	template <typename... Args>
-	lfq_node(node_ptr_t n, Args&&... args) : next{ n }, data{ std::forward<Args>(args)... } {  }
+	lfq_node(pointer n, Args&&... args) : next{ n }, data{ std::forward<Args>(args)... } {  }
 
 
 	/// Default constructs the data with the next pointer
 	/// @param n The next pointer
-	lfq_node(node_ptr_t n) : next{ n }, data{  } {  }
+	lfq_node(pointer n) : next{ n }, data{  } {  }
 
 
-	std::atomic<node_ptr_t> next; //< Pointer to the next node
+	std::atomic<pointer> next; //< Pointer to the next node
 	value_type data; //< The internal data
 };
 
@@ -160,7 +160,7 @@ class lockfree_queue {
 	friend class lfq_node_wrapper<T, lockfree_queue>; /// Node wrapper is a friend so we can deallocate nodes
 
 	using node_t = lfq_node<T>; //< Node type
-	using node_ptr_t = lfq_node<T>*; //< Node pointer type
+	using node_ptr_t = typename lfq_node<T>::pointer; //< Node pointer type
 	using node_allocator_type = typename std::allocator_traits<A>::template rebind_alloc<node_t>; //< Node allocator type
 	using node_allocator_traits_type = std::allocator_traits<node_allocator_type>; //< Node allocator helper class
 
@@ -172,7 +172,7 @@ class lockfree_queue {
 
 
 	alignas(cache_line) struct {
-		node_ptr_t ptr; //< The dummy node
+		const node_ptr_t ptr; //< The dummy node
 		std::atomic_flag in; //< Flag to notify if queue has dummy node
 	} mDummy;
 	alignas(cache_line) std::atomic<node_ptr_t> mHead; //< Head node of the queue

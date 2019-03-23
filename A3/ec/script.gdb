@@ -3,6 +3,6 @@ set breakpoint pending on
 set print thread-events off
 break exit
 commands
-run 10
+run 100
 end
-run 10
+run 100
