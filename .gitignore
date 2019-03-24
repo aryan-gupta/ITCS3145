@@ -1,3 +1,7 @@
+# The passed files
+.passed*
+approx
+
 # Prerequisites
 *.d
 *.Td
@@ -50,3 +54,5 @@
 *__pycache__*
 
 **/report/*.pdf
+
+.vscode/ipch
