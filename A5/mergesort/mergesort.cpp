@@ -106,7 +106,9 @@ using clk = std::chrono::steady_clock;
 /// @param func The function to call
 /// @param args The arguments to pass into the function
 /// @return A std::pair containing the time in seconds and the result
-template <typename F, typename... A>
+template <typename F, typename... A,
+  typename = typename std::enable_if<!std::is_same<typename std::result_of<F&&(A&&...)>::type, void>::value>::type
+>
 auto measure_func(F func, A... args) -> std::pair<float, typename std::result_of<F&&(A&&...)>::type> {
   auto start = clk::now();
   auto result = func( std::forward<A>(args)... );
