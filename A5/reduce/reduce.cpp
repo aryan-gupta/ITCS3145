@@ -87,11 +87,16 @@ auto reduce_recurse(I start, I end) -> typename std::iterator_traits<I>::value_t
   I mid = start + (dist / 2);
 
   int suml, sumr, sum;
-  #pragma omp task depend(out: suml) private(start, mid)
-  suml = reduce_recurse(start, mid);
-  #pragma omp task depend(out: sumr) private(mid, end)
-  suml = reduce_recurse(mid, end);
-  #pragma omp task depend(in: suml, sumr)
+
+  #pragma omp taskgroup
+  {
+    #pragma omp task
+    suml = reduce_recurse(start, mid);
+    #pragma omp task
+    sumr = reduce_recurse(mid, end);
+  }
+
+  #pragma omp task
   sum = suml + sumr;
 
   return sum;
