@@ -75,18 +75,11 @@ void merge_sort_merge_recurse(I begin, I end, O op) {
 
 	auto mid = std::next(begin, dist / 2);
 
-  #pragma omp taskgroup
-  {
-
-    #pragma omp task
-    merge_sort_merge_recurse(begin, mid, op);
-
-    #pragma omp task
-    merge_sort_merge_recurse(mid, end, op);
-
-  }
-
   #pragma omp task
+  merge_sort_merge_recurse(begin, mid, op);
+  #pragma omp task
+  merge_sort_merge_recurse(mid, end, op);
+  #pragma omp taskwait
   merge_sort_merge(begin, mid, end, op);
 
 }
