@@ -39,6 +39,7 @@ auto reduce(I start, I end) -> typename std::iterator_traits<I>::value_type {
 
 namespace parallel {
 
+/// Parallely reduces between 2 iterator like objects using a granulity (attempt 1 before I read the hint)
 template <typename I>
 auto reduce(I start, I end) -> typename std::iterator_traits<I>::value_type {
   using val_t = typename std::iterator_traits<I>::value_type;
@@ -73,6 +74,44 @@ auto reduce(I start, I end) -> typename std::iterator_traits<I>::value_type {
 }
 
 } // end namespace parallel
+
+
+namespace parallel_recurse {
+
+template <typename I>
+auto reduce_recurse(I start, I end) -> typename std::iterator_traits<I>::value_type {
+  auto dist = std::distance(start, end);
+  if (dist == 0) return 0;
+  if (dist == 1) return *start;
+
+  I mid = start + (dist / 2);
+
+  int suml, sumr, sum;
+  #pragma omp task depend(out: suml) private(start, mid)
+  suml = reduce_recurse(start, mid);
+  #pragma omp task depend(out: sumr) private(mid, end)
+  suml = reduce_recurse(mid, end);
+  #pragma omp task depend(in: suml, sumr)
+  sum = suml + sumr;
+
+  return sum;
+}
+
+/// Parallely reduces between 2 iterator like objects using recursion
+template <typename I>
+auto reduce(I start, I end) -> typename std::iterator_traits<I>::value_type {
+  typename std::iterator_traits<I>::value_type ans{  };
+
+  #pragma omp parallel
+  #pragma omp single
+  {
+    ans = reduce_recurse(start, end);
+  }
+
+  return ans;
+}
+
+} // end namespace parallel_recurse
 
 using clk = std::chrono::steady_clock;
 
@@ -125,13 +164,14 @@ int main (int argc, char* argv[]) {
   }
 
   int n = atoi(argv[1]);
+  omp_set_num_threads(atoi(argv[2]));
+
   int * arr = new int [n];
 
   generateReduceData (arr, atoi(argv[1]));
 
-  // int answer = parallel::reduce(arr, arr + n);
   float elapse; int answer;
-  std::tie(elapse, answer) = measure_func(parallel::reduce<int*>, arr, arr + n);
+  std::tie(elapse, answer) = measure_func(parallel_recurse::reduce<int*>, arr, arr + n);
 
   std::cout << answer << std::endl;
   std::cerr << elapse << std::endl;
