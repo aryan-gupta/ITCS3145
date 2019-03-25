@@ -54,12 +54,10 @@ void print(I begin, I end) {
 namespace detail {
 template <typename I, typename O>
 void bubblesort(I begin, I end, O op) {
-  // bool swapped = false;
-  int swapped = 0;
+  char swapped = 0;
   size_t iteration = 0;
 
   do {
-    // swapped = false;
     swapped = 0;
 
     I ptr = (iteration++ % 2 == 0)? begin : std::next(begin);
@@ -71,10 +69,8 @@ void bubblesort(I begin, I end, O op) {
         I next = std::next(ptr);
         if (!op(*ptr, *next)) {
           std::iter_swap(ptr, next);
-          // #pragma omp critcal
-          // swapped = true;
           #pragma omp atomic
-          ++swapped;
+          swapped |= 1;
         }
       }
     }
