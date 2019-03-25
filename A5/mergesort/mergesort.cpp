@@ -5,6 +5,8 @@
 #include <iostream>
 #include <unistd.h>
 
+#include <omp.h>
+
 #include <cassert>
 #include <chrono>
 #include <vector>
@@ -153,6 +155,7 @@ int main (int argc, char* argv[]) {
   }
 
   int n = atoi(argv[1]);
+  omp_set_num_threads(atoi(argv[2]));
 
   // get arr data
   int * arr = new int [n];
