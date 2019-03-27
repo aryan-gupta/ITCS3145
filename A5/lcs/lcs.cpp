@@ -38,15 +38,13 @@ namespace detail {
     } else {
       size_t lcs1, lcs2;
 
-      #pragma omp taskgroup
-      {
-        #pragma omp task
-        lcs1 = longest_common_subsequence(begin1, last1, begin2, end2, op);
+      #pragma omp task shared(op) firstprivate(lcs1, begin1, last1, begin2, end2)
+      lcs1 = longest_common_subsequence(begin1, last1, begin2, end2, op);
 
-        #pragma omp task
-        lcs2 = longest_common_subsequence(begin1, end1, begin2, last2, op);
-      }
+      #pragma omp task shared(op) firstprivate(lcs1, begin1, last1, begin2, end2)
+      lcs2 = longest_common_subsequence(begin1, end1, begin2, last2, op);
 
+      #pragma omp taskkwait
       return std::max(lcs1, lcs2);
     }
   }
