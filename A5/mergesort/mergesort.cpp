@@ -70,12 +70,44 @@ void merge_sort_merge(I begin, I mid, I end, O op) {
   std::move(tmp.begin(), tmp.end(), begin);
 }
 
+} // end namespace detail
+
+// Serial version of the merge sort
+namespace serial {
+// Based off a project I wrote many years ago (with a few improvements):
+// https://github.com/aryan-gupta/VisualSorting/blob/develop/MergeSort.h
+// We want to check if the iterator is at least a fwd iterator. this algo
+// doesnt work with anything less
+template <typename I, typename O = std::less<typename std::iterator_traits<I>::value_type>,
+          typename = typename std::enable_if<std::is_base_of<std::random_access_iterator_tag, typename std::iterator_traits<I>::iterator_category>::value>::type>
+void merge_sort(I begin, I end, O op = {  }) {
+	auto size = std::distance(begin, end);
+	if (size <= 1)
+		return;
+
+	auto mid = std::next(begin, size / 2);
+	merge_sort(begin, mid, op);
+	merge_sort(mid, end, op);
+  ::detail::merge_sort_merge(begin, mid, end, op);
+}
+}
+
+
+namespace detail {
+
 template <typename I, typename O>
 void merge_sort_merge_recurse(I begin, I end, O op) {
   auto dist = std::distance(begin, end);
   if (dist <= 1) return;
 
-	auto mid = std::next(begin, dist / 2);
+  constexpr size_t gran = 10000;
+
+  if (dist <= gran) {
+    ::serial::merge_sort(begin, end, op);
+    return;
+  }
+
+  auto mid = std::next(begin, dist / 2);
 
   #pragma omp task
   merge_sort_merge_recurse(begin, mid, op);
