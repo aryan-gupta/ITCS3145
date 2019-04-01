@@ -7,7 +7,7 @@
 
 int main(int argc, char*argv[]) {
 
-	int rank{  }, size{  };
+	int rank = 0, size = 0;
 
 	MPI_Init(&argc, &argv);
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -19,5 +19,5 @@ int main(int argc, char*argv[]) {
 	std::cout << "I am process "<< rank << " out of " << size << " . I am running on " << str << "." << std::endl;
 
 	MPI_Finalize();
-	return EXIT_SUCCESS;
+	return 0;
 }
