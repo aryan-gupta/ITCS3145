@@ -17,4 +17,7 @@ int main(int argc, char*argv[]) {
 	int ret = gethostname(str, HOST_NAME_MAX + 1);
 
 	std::cout << "I am process "<< rank << " out of " << size << " . I am running on " << str << "." << std::endl;
+
+	MPI_Finalize();
+	return EXIT_SUCCESS;
 }
