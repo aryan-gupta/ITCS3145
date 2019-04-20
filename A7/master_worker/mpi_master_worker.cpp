@@ -32,7 +32,7 @@ float integrate(func_t functionid, int a, int b, int n, int s, int e, int intens
     ans += functionid(x, intensity);
   }
 
-  return ans * ban;
+  return ans;
 }
 
 float do_parent_work(int size, int fid, int a, int b, int n, int intensity) {
