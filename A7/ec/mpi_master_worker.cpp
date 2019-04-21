@@ -80,7 +80,7 @@ void end_comm(int size) {
 
 float do_parent_work(int size, int fid, int a, int b, int n, int intensity) {
   const float ban = (b - a) / (float)n;
-  int gran = n / size;
+  const int gran = 10000;
   float ans{  };
   int start = 0;
   data_t def = { fid, a, b, n, 0, 0, intensity };
