@@ -4,6 +4,7 @@
 #include <iostream>
 #include <chrono>
 #include <array>
+#include <memory>
 #include <vector>
 
 using func_t = float (*)(float, int);
@@ -36,29 +37,24 @@ float integrate(func_t functionid, int a, int b, int n, int s, int e, int intens
 }
 
 float do_parent_work(int size, int fid, int a, int b, int n, int intensity) {
-  int gran = n / size;
+  int gran = n / size - 1;
+  float ans{  };
+
   std::array<int, DATA_SIZE> data = { fid, a, b, n, 0, gran, intensity };
 
-  for (int i = 1; i < size; ++i) {
+  for (int i = 1; i < size - 1; ++i) {
     MPI_Send(data.data(), DATA_SIZE, MPI_INT, i, 0, MPI_COMM_WORLD);
     data[4] = data[5];
     data[5] += gran;
   }
 
-  // depending on the function id. Set the function pointer to the pointer to the function
-  func_t func = nullptr;
-  switch (fid) {
-    case 1: func = f1; break;
-    case 2: func = f2; break;
-    case 3: func = f3; break;
-    case 4: func = f4; break;
-    default: {
-      std::cout << "[E] Ya, you screwed up... have fun" << std::endl;
-      std::terminate();
-    }
-  }
+  data[5] = n;
+  MPI_Send(data.data(), DATA_SIZE, MPI_INT, size - 1, 0, MPI_COMM_WORLD);
 
-  float ans = integrate(func, a, b, n, data[4], n, intensity);
+  data[0] = 0;
+  for (int i = 1; i < size; ++i) {
+    MPI_Send(data.data(), DATA_SIZE, MPI_INT, i, 0, MPI_COMM_WORLD);
+  }
 
   for (int i = 1; i < size; ++i) {
     float partial;
@@ -68,23 +64,37 @@ float do_parent_work(int size, int fid, int a, int b, int n, int intensity) {
 
   ans *= (b - a) / (float)n;
 
-  data[0] = 0;
-  for (int i = 1; i < size; ++i) {
-    MPI_Send(data.data(), DATA_SIZE, MPI_INT, i, 0, MPI_COMM_WORLD);
-  }
-
-
   return ans;
 }
 
 
+// http://supercomputingblog.com/mpi/mpi-tutorial-5-asynchronous-communication/
+// The basic premise is this:
+// The child gets one chunk of data. The data recv must be blocking
+// the child then sets up an async recv for the next chunk then starts the calculations
+// While MPI gets the next set of data, we do our calculations
+// Once we have our answer, we wait for any previous async send.
+// NOTE: On the first iteration, the request handle is empty. So it will fail. According to
+//       docs, this is communicated by the status, however we just ignore it.
+// NOTE: Turns out I was wrong on the previous assumption, need a bool not to tell us if
+//       if our data is valid or not.
+// Once the previous async send is finished, we send our data.
+// Then we wait on the recv we started before the calculations. Once we have the data
+// we just do a pointer swap of data and async_data so we dont have any race conditions
+// If our async recv is the last chunk, then we just cancel our recv request
 void do_child_work() {
-  while (true) { // will loop until our function id != 0
-    // recv data from parent
-    std::array<int, DATA_SIZE> data;
+  std::unique_ptr<int[]> data{ new int[DATA_SIZE] };
+  std::unique_ptr<int[]> async_data{ new int[DATA_SIZE] };
+  float ans{  };
+  MPI_Request send;
+  bool wait_for_send = false;
 
-    // recive integration work
-    MPI_Recv(data.data(), DATA_SIZE, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  // recive the initial chunk, this must be a blocking recv
+  MPI_Recv(data.get(), DATA_SIZE, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+  while (true) {
+    MPI_Request request; // before we start any computations, go head and setup the async recv
+    MPI_Irecv(async_data.get(), DATA_SIZE, MPI_INT, 0, 0, MPI_COMM_WORLD, &request);
 
     int id = data[0];
     int a  = data[1];
@@ -97,7 +107,10 @@ void do_child_work() {
     // depending on the function id. Set the function pointer to the pointer to the function
     func_t func = nullptr;
     switch (id) {
-      case 0: return; // if our function id is 0 then there is no more work to do
+      case 0: {
+        MPI_Cancel(&request);
+        return; // if our function id is 0 then there is no more work to do
+      }
       case 1: func = f1; break;
       case 2: func = f2; break;
       case 3: func = f3; break;
@@ -108,9 +121,16 @@ void do_child_work() {
       }
     }
 
-    float ans = integrate(func, a, b, n, s, e, i);
+    float tmp_ans = integrate(func, a, b, n, s, e, i);
 
-    MPI_Send(&ans, 1, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
+    if (wait_for_send) MPI_Wait(&send, MPI_STATUS_IGNORE); // wait for any previous send
+    ans = tmp_ans;
+    MPI_Isend(&ans, 1, MPI_FLOAT, 0, 0, MPI_COMM_WORLD, &send);
+    wait_for_send = true;
+
+    // wait on async recive and swap our data for the next iteration
+    MPI_Wait(&request, MPI_STATUS_IGNORE);
+    std::swap(data, async_data);
   }
 }
 
