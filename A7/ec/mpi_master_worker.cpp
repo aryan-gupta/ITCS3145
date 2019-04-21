@@ -23,6 +23,7 @@ float f4(float x, int intensity);
 #endif
 
 constexpr size_t DATA_SIZE = 7;
+using data_t = std::array<int, DATA_SIZE>;
 
 float integrate(func_t functionid, int a, int b, int n, int s, int e, int intensity) {
   float ban = (b - a) / (float)n;
@@ -36,34 +37,79 @@ float integrate(func_t functionid, int a, int b, int n, int s, int e, int intens
   return ans;
 }
 
-float do_parent_work(int size, int fid, int a, int b, int n, int intensity) {
-  int gran = n / size - 1;
+using request_t = std::pair<MPI_Request, data_t>;
+std::pair<bool, int> async_send(std::unique_ptr<request_t[]> &req, const data_t &stencil, int &start, int gran, int size) {
+  int node = 1;
+  for (; node != size and start <= stencil[3] - gran; ++node) {
+    ::new (&req[node]) request_t{ MPI_Request{  }, stencil };
+
+    int* data = req[node].second.data();
+    MPI_Request* handle = &req[node].first;
+
+    data[4] = start;
+    start = data[5] = (start + (1.5 * gran) > stencil[3]) ? stencil[3] : start + gran;
+
+    MPI_Isend(data, DATA_SIZE, MPI_INT, node, 0, MPI_COMM_WORLD, handle);
+  }
+
+  return { node == size, node };
+}
+
+float wait_and_recv(std::unique_ptr<request_t[]> &req, int num) {
+  for (int i = 1; i < num; ++i) {
+    MPI_Wait(&req[i].first, MPI_STATUS_IGNORE); // wait for send to finish
+  }
+
   float ans{  };
 
-  std::array<int, DATA_SIZE> data = { fid, a, b, n, 0, gran, intensity };
-
-  for (int i = 1; i < size - 1; ++i) {
-    MPI_Send(data.data(), DATA_SIZE, MPI_INT, i, 0, MPI_COMM_WORLD);
-    data[4] = data[5];
-    data[5] += gran;
-  }
-
-  data[5] = n;
-  MPI_Send(data.data(), DATA_SIZE, MPI_INT, size - 1, 0, MPI_COMM_WORLD);
-
-  data[0] = 0;
-  for (int i = 1; i < size; ++i) {
-    MPI_Send(data.data(), DATA_SIZE, MPI_INT, i, 0, MPI_COMM_WORLD);
-  }
-
-  for (int i = 1; i < size; ++i) {
+  for (int i = 1; i < num; ++i) {
     float partial;
     MPI_Recv(&partial, 1, MPI_FLOAT, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     ans += partial;
   }
 
-  ans *= (b - a) / (float)n;
+  return ans;
+}
 
+void end_comm(int size) {
+  data_t data = { 0, 0, 0, 0, 0, 0, 0 };
+  for (int i = 1; i < size; ++i) {
+    MPI_Send(data.data(), DATA_SIZE, MPI_INT, i, 0, MPI_COMM_WORLD);
+  }
+}
+
+float do_parent_work(int size, int fid, int a, int b, int n, int intensity) {
+  const float ban = (b - a) / (float)n;
+  int gran = n / size;
+  float ans{  };
+  int start = 0;
+  data_t def = { fid, a, b, n, 0, 0, intensity };
+
+  std::unique_ptr<request_t[]> data{ new request_t[size] };
+  std::unique_ptr<request_t[]> async_data{ new request_t[size] };
+
+  bool more; int num;
+
+  // initial work
+  std::tie(more, num) = async_send(data, def, start, gran, size);
+
+  if (!more) {
+    end_comm(size);
+    return wait_and_recv(data, num) * ban;
+  }
+
+  while (more) {
+    int tmp_num;
+    std::tie(more, tmp_num) = async_send(async_data, def, start, gran, size);
+    ans += wait_and_recv(data, num);
+    num = tmp_num;
+    std::swap(data, async_data);
+  }
+
+  end_comm(size);
+  ans += wait_and_recv(data, num);
+
+  ans *= ban;
   return ans;
 }
 
