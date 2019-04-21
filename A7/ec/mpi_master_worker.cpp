@@ -40,7 +40,7 @@ float integrate(func_t functionid, int a, int b, int n, int s, int e, int intens
 using request_t = std::pair<MPI_Request, data_t>;
 std::pair<bool, int> async_send(std::unique_ptr<request_t[]> &req, const data_t &stencil, int &start, int gran, int size) {
   int node = 1;
-  for (; node != size and start <= stencil[3] - gran; ++node) {
+  for (; node != size and start < stencil[3]; ++node) {
     ::new (&req[node]) request_t{ MPI_Request{  }, stencil };
 
     int* data = req[node].second.data();
