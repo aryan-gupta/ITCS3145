@@ -39,7 +39,6 @@ int get_j(int n, size_t i) {
 
 double get_value(double* last, int iter, int n, int i, int j) {
   if (iter == 0) { // if initial iteration
-    std::cout << n << std::endl;
     return generate2DHeat(n, i, j);
   } else {
     double val{ };
@@ -134,12 +133,11 @@ void do_child_work(long N, int rank, int size) {
 }
 
 void do_all_work(int N, int K) {
-  std::cout << "Work" << std::endl;
   const int data_size = N * N;
   std::unique_ptr<double[]> data{ new double[data_size] };
   std::unique_ptr<double[]> prev_data{ new double[data_size] };
 
-  for (int iteration = 0; iteration < K; ++iteration) {
+  for (int iteration = 0; iteration <= K; ++iteration) {
     for (int idx = 0; idx < data_size; ++idx) {
       data[idx] = get_value(prev_data.get(), iteration, N, get_i(N, idx), get_j(N, idx));
     }
