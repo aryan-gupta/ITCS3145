@@ -62,7 +62,7 @@ void do_parent_work(long N, long K, int size) {
   std::unique_ptr<double[]> data{ new double[data_size] };
   std::unique_ptr<double[]> prev_data{ new double[data_size] };
 
-  for (int iteration = 0; iteration < K; ++iteration) {
+  for (int iteration = 0; iteration <= K; ++iteration) {
     // send initial data
     for (int node = 1; node < size; ++node) {
       MPI_Send(&iteration, 1, MPI_INT, node, 0, MPI_COMM_WORLD);
@@ -85,6 +85,10 @@ void do_parent_work(long N, long K, int size) {
     }
 
     // check the data??
+    // for (int i = 0; i < data_size; ++i) {
+    //   int r = check2DHeat(N, get_i(N, i), get_j(N, i), data[i], iteration);
+    //   if (r == 0) std::cout << iteration << "W" << std::endl;
+    // }
 
     // swap the old data to prepare for new iteration
     std::swap(data, prev_data);
@@ -97,17 +101,19 @@ void do_parent_work(long N, long K, int size) {
   }
 
   for (int i = 0; i < data_size; ++i) {
-    int r = check2DHeat(N, get_i(N, i), get_j(N, i), data[i], K);
+    int r = check2DHeat(N, get_i(N, i), get_j(N, i), prev_data[i], K);
     if (r == 0) std::cout << "W" << std::endl;
   }
 }
 
 
 void do_child_work(long N, int rank, int size) {
+  rank--; // to take care of the fact that the master node does not do anything
+  size--;
   const int data_size = N * N;
   const int gran = data_size / size;
   const int start = rank * gran;
-  const int end = (rank == size - 1)? N : (rank + 1) * gran;
+  const int end = (rank == size - 1)? data_size : (rank + 1) * gran;
 
   while (true) {
     // recive iteration number
