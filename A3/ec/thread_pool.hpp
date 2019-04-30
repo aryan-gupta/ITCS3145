@@ -9,9 +9,11 @@
 
 #ifdef USE_BOOST
 #include <boost/lockfree/queue.hpp>
+#else
+// #include "lockfree_queue.hpp"
+#include "mpmc_queue.hpp"
 #endif
 
-#include "lockfree_queue.hpp"
 
 // Internal implementation for the ThreadPoolSchedular. I wanted to make the code as modular as possible
 // so I took some inspiration from std::any. The gist of this code is that there is a base class with a v-table
@@ -88,7 +90,8 @@ class ThreadPoolSchedular {
 #ifdef USE_BOOST
 	template <typename T> using queue_t = boost::lockfree::queue<T>;
 #else
-	template <typename T> using queue_t = ari::lockfree_queue<T>;
+	// template <typename T> using queue_t = ari::lockfree_queue<T>;
+	template <typename T> using queue_t = mpmc_queue<T>;
 #endif
 	template <typename A> using derived_t = detail::tps_func_wrapper<A>;
 
