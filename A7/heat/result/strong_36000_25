@@ -1,0 +1,16 @@
+[proxy:0:2@mba-c4.uncc.edu] HYD_pmcd_pmip_control_cmd_cb (../../../../../mpich-3.2.1/src/pm/hydra/pm/pmiserv/pmip_cb.c:887): assert (!closed) failed
+[proxy:0:2@mba-c4.uncc.edu] HYDT_dmxu_poll_wait_for_event (../../../../../mpich-3.2.1/src/pm/hydra/tools/demux/demux_poll.c:76): callback returned error status
+[proxy:0:2@mba-c4.uncc.edu] main (../../../../../mpich-3.2.1/src/pm/hydra/pm/pmiserv/pmip.c:202): demux engine error waiting for event
+[proxy:0:4@mba-c6.uncc.edu] HYD_pmcd_pmip_control_cmd_cb (../../../../../mpich-3.2.1/src/pm/hydra/pm/pmiserv/pmip_cb.c:887): assert (!closed) failed
+[proxy:0:4@mba-c6.uncc.edu] HYDT_dmxu_poll_wait_for_event (../../../../../mpich-3.2.1/src/pm/hydra/tools/demux/demux_poll.c:76): callback returned error status
+[proxy:0:4@mba-c6.uncc.edu] main (../../../../../mpich-3.2.1/src/pm/hydra/pm/pmiserv/pmip.c:202): demux engine error waiting for event
+[proxy:0:1@mba-c3.uncc.edu] HYD_pmcd_pmip_control_cmd_cb (../../../../../mpich-3.2.1/src/pm/hydra/pm/pmiserv/pmip_cb.c:887): assert (!closed) failed
+[proxy:0:1@mba-c3.uncc.edu] HYDT_dmxu_poll_wait_for_event (../../../../../mpich-3.2.1/src/pm/hydra/tools/demux/demux_poll.c:76): callback returned error status
+[proxy:0:1@mba-c3.uncc.edu] main (../../../../../mpich-3.2.1/src/pm/hydra/pm/pmiserv/pmip.c:202): demux engine error waiting for event
+[proxy:0:3@mba-c5.uncc.edu] HYD_pmcd_pmip_control_cmd_cb (../../../../../mpich-3.2.1/src/pm/hydra/pm/pmiserv/pmip_cb.c:887): assert (!closed) failed
+[proxy:0:3@mba-c5.uncc.edu] HYDT_dmxu_poll_wait_for_event (../../../../../mpich-3.2.1/src/pm/hydra/tools/demux/demux_poll.c:76): callback returned error status
+[proxy:0:3@mba-c5.uncc.edu] main (../../../../../mpich-3.2.1/src/pm/hydra/pm/pmiserv/pmip.c:202): demux engine error waiting for event
+[mpiexec@mba-c1.uncc.edu] HYDT_bscu_wait_for_completion (../../../../../mpich-3.2.1/src/pm/hydra/tools/bootstrap/utils/bscu_wait.c:76): one of the processes terminated badly; aborting
+[mpiexec@mba-c1.uncc.edu] HYDT_bsci_wait_for_completion (../../../../../mpich-3.2.1/src/pm/hydra/tools/bootstrap/src/bsci_wait.c:23): launcher returned error waiting for completion
+[mpiexec@mba-c1.uncc.edu] HYD_pmci_wait_for_completion (../../../../../mpich-3.2.1/src/pm/hydra/pm/pmiserv/pmiserv_pmci.c:218): launcher returned error waiting for completion
+[mpiexec@mba-c1.uncc.edu] main (../../../../../mpich-3.2.1/src/pm/hydra/ui/mpich/mpiexec.c:340): process manager error waiting for completion

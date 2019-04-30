@@ -1,0 +1,27 @@
+Timeout, server mba-c6.uncc.edu not responding.
+Timeout, server mba-c3.uncc.edu not responding.
+Timeout, server mba-c4.uncc.edu not responding.
+Timeout, server mba-c5.uncc.edu not responding.
+Fatal error in MPI_Recv: Unknown error class, error stack:
+MPI_Recv(200).........................: MPI_Recv(buf=0x7ffe443bc9ec, count=1, MPI_INT, src=0, tag=0, MPI_COMM_WORLD, status=0x1) failed
+MPIDU_Complete_posted_with_error(1137): Process failed
+Fatal error in MPI_Recv: Unknown error class, error stack:
+MPI_Recv(200).........................: MPI_Recv(buf=0x7ffee9a2e21c, count=1, MPI_INT, src=0, tag=0, MPI_COMM_WORLD, status=0x1) failed
+MPIDU_Complete_posted_with_error(1137): Process failed
+Fatal error in MPI_Recv: Unknown error class, error stack:
+MPI_Recv(200).........................: MPI_Recv(buf=0x7ffcc06fd84c, count=1, MPI_INT, src=0, tag=0, MPI_COMM_WORLD, status=0x1) failed
+MPIDU_Complete_posted_with_error(1137): Process failed
+Fatal error in MPI_Recv: Unknown error class, error stack:
+MPI_Recv(200).........................: MPI_Recv(buf=0x7ffcb248911c, count=1, MPI_INT, src=0, tag=0, MPI_COMM_WORLD, status=0x1) failed
+MPIDU_Complete_posted_with_error(1137): Process failed
+Fatal error in MPI_Recv: Unknown error class, error stack:
+MPI_Recv(200).........................: MPI_Recv(buf=0x7ffd924e6b6c, count=1, MPI_INT, src=0, tag=0, MPI_COMM_WORLD, status=0x1) failed
+MPIDU_Complete_posted_with_error(1137): Process failed
+Fatal error in MPI_Recv: Unknown error class, error stack:
+MPI_Recv(200).........................: MPI_Recv(buf=0x7ffe8e8748fc, count=1, MPI_INT, src=0, tag=0, MPI_COMM_WORLD, status=0x1) failed
+MPIDU_Complete_posted_with_error(1137): Process failed
+Fatal error in MPI_Recv: Unknown error class, error stack:
+MPI_Recv(200).........................: MPI_Recv(buf=0x7ffd2d8f912c, count=1, MPI_INT, src=0, tag=0, MPI_COMM_WORLD, status=0x1) failed
+MPIDU_Complete_posted_with_error(1137): Process failed
+[mpiexec@mba-c1.uncc.edu] HYDT_bscu_wait_for_completion (../../../../../mpich-3.2.1/src/pm/hydra/tools/bootstrap/utils/bscu_wait.c:76): one of the processes terminated badly; aborting
+[mpiexec@mba-c1.uncc.edu] HYDT_bsci_wait_for_completion (../../../../../mpich-3.2.1/src/pm/hydra/tools/bootstrap/src/bsci_wait.c:23): launcher returned error waiting for completion
