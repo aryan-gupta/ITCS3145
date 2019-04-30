@@ -91,7 +91,7 @@ class ThreadPoolSchedular {
 	template <typename T> using queue_t = boost::lockfree::queue<T>;
 #else
 	// template <typename T> using queue_t = ari::lockfree_queue<T>;
-	template <typename T> using queue_t = mpmc_queue<T>;
+	template <typename T> using queue_t = simple_mpmc_queue<T>;
 #endif
 	template <typename A> using derived_t = detail::tps_func_wrapper<A>;
 

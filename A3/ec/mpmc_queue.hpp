@@ -5,15 +5,15 @@
 #include <mutex>
 
 template <typename T>
-class mpmc_queue {
+class simple_mpmc_queue {
 	using lock_guard_t = std::unique_lock<std::mutex>;
 
 	std::queue<T> mQ;
 	std::mutex mLock;
 
 public:
-	mpmc_queue() = default;
-	~mpmc_queue() = default;
+	simple_mpmc_queue() = default;
+	~simple_mpmc_queue() = default;
 
 	/// @WARNING default and copy constructor must not throw or hell breaks lose
 	std::pair<bool, T> try_pop() {
