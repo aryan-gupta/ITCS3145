@@ -161,6 +161,7 @@ class lockfree_queue {
 
 	using node_t = lfq_node<T>; //< Node type
 	using node_ptr_t = typename lfq_node<T>::pointer; //< Node pointer type
+	template <typename D> using smart_ptr_no_del_type = std
 	using node_allocator_type = typename std::allocator_traits<A>::template rebind_alloc<node_t>; //< Node allocator type
 	using node_allocator_traits_type = std::allocator_traits<node_allocator_type>; //< Node allocator helper class
 
