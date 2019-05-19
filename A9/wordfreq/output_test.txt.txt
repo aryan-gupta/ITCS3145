@@ -1,0 +1,12 @@
+KV pair: proc 0, sizes 5 4, key This, value 12
+KV pair: proc 0, sizes 3 4, key to, value 8
+KV pair: proc 0, sizes 5 4, key make, value 7
+KV pair: proc 1, sizes 3 4, key is, value 11
+KV pair: proc 1, sizes 2 4, key a, value 10
+KV pair: proc 1, sizes 5 4, key test, value 9
+KV pair: proc 1, sizes 5 4, key sure, value 6
+KV pair: proc 1, sizes 4 4, key you, value 5
+KV pair: proc 1, sizes 4 4, key the, value 4
+KV pair: proc 1, sizes 5 4, key word, value 3
+KV pair: proc 1, sizes 6 4, key count, value 2
+KV pair: proc 1, sizes 6 4, key works, value 1
